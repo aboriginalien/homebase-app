@@ -24,7 +24,9 @@ class HandoffTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
+        # macOS may expose TMPDIR through /var -> /private/var. Keep the
+        # synthetic fixture canonical without relaxing production path checks.
+        root = Path(self.tmp.name).resolve()
         self.helper = p.Store(root / 'helper')
         self.vm = p.Store(root / 'vm')
         self.transport = root / 'transport'; self.transport.mkdir(mode=0o700)
