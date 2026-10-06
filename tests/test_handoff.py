@@ -149,7 +149,8 @@ class HandoffTests(unittest.TestCase):
     def test_missing_grants_bad_tokens_expiry_and_unknown_fields(self):
         for name, value in [('scopes', ['openid', 'profile']), ('scopes', [True]),
                             ('expires_at', True), ('expires_at', float('nan')), ('expires_at', 0),
-                            ('access_token', ''), ('refresh_token', 3), ('refresh_token', 'fake\nheader'),
+                            ('access_token', ''), ('access_token', 'fake\u2603'), ('access_token', 'fake token'),
+                            ('refresh_token', 3), ('refresh_token', 'fake\nheader'),
                             ('extra', 'unexpected')]:
             doc = self.document(); doc['registration'][name] = value
             with self.subTest(field=name): self.assert_rejected_without_vm_change(doc)
@@ -268,7 +269,7 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(self.vm.load(), self.remote)
 
     def test_oversized_encoded_export_rejected_before_freeze(self):
-        data = self.helper.load(); data['accounts'][self.key]['access_token'] = '\u2603' * 65536
+        data = self.helper.load(); data['accounts'][self.key]['refresh_token'] = '\u2603' * 65536
         self.helper.save(data); before = self.helper.path.read_bytes()
         with self.assertRaises(p.ProbeError): self.export()
         self.assertEqual(self.helper.path.read_bytes(), before); self.assertFalse(self.file.exists())

@@ -317,6 +317,8 @@ def handoff_record(record, key, expected_client):
         if not all(isinstance(record[f], str) and 0 < len(record[f]) <= 65536
                    and not any(ord(c) < 32 or ord(c) == 127 for c in record[f]) for f in TOKEN_FIELDS):
             raise ValueError()
+        if any(not 33 <= ord(c) <= 126 for c in record["access_token"]):
+            raise ValueError()  # Bearer header must not trigger token-bearing encoding errors.
         header = jwt.get_unverified_header(record["id_token"])
         if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str) or not header["kid"]:
             raise ValueError()
