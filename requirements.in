@@ -1,0 +1,4 @@
+# Direct dependencies; requirements.txt locks the complete tested wheel set.
+PyJWT==2.15.1
+cryptography==48.0.1
+requests==2.34.2
