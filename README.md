@@ -1,9 +1,10 @@
-# Homebase — local ChatGPT-plan proof
+# Homebase — personal ChatGPT-plan chat
 
-A small open-source command-line client that registers Homebase through the
-documented Sign in with ChatGPT (SIWC) flow and requests exactly one streamed
-hello-world response. No chat UI, threads, memory, tools, hosting or API-key
-fallback. MIT applies to original code; dependencies retain their own licenses.
+A minimal black typed-chat browser app, with persistent threads and explicit
+canonical memory. It reuses the open-source Sign in with ChatGPT (SIWC) helper
+and direct public Responses API. No API-key fallback, extra site password,
+uploads, external tools or dashboard. MIT applies to original code; dependencies
+retain their own licenses.
 
 **Installed code and offline tests are not proof of subscription inference.**
 A live proof requires eligible account consent, actual plan grants, model access
@@ -31,7 +32,7 @@ python3.12 -m venv "$HOME/.local/share/homebase-probe-env"
 "$HOME/.local/share/homebase-probe-env/bin/python" -m pip install --require-hashes --only-binary=:all: -r requirements.txt
 "$HOME/.local/share/homebase-probe-env/bin/python" -m unittest discover -s tests -v
 "$HOME/.local/share/homebase-probe-env/bin/python" homebase_probe.py login
-"$HOME/.local/share/homebase-probe-env/bin/python" homebase_probe.py probe
+"$HOME/.local/share/homebase-probe-env/bin/python" homebase_probe.py probe --model gpt-5.6-sol
 ```
 
 Alternatively, open **run-probe.command** on the local helper. It checks Python,
@@ -201,3 +202,127 @@ The offline suite uses freshly generated synthetic signing keys and mocked
 provider responses, including a real **local test** HTTP callback. It never
 contacts an account provider, signs into ChatGPT or verifies real subscription
 inference. Keep that distinction in any downstream release notes.
+
+
+## Minimal browser chat
+
+After validated SIWC login/import, choose the saved registration label from the
+protected helper's `status`. Use the **same private data directory** for helper
+and chat; both hold `session.lock` across refresh and inference. The app explicitly
+selects `gpt-5.6-sol`, high reasoning, standard speed. It checks the selected
+account's current visible catalog on every provider turn and rejects a missing
+model or inconsistent terminal settings. Historical helper `probe` without
+`--model` retains its 6.1 default; current commands and launcher pass 5.6 explicitly.
+
+The following are placeholders, not an instruction to deploy to an unreviewed host:
+
+```sh
+python homebase_chat.py --data-dir /PRIVATE/STATE --account SAVED_LABEL --origin https://APPROVED-HOST seed --file /PRIVATE/SEED.json
+python homebase_chat.py --data-dir /PRIVATE/STATE --account SAVED_LABEL --origin https://APPROVED-HOST serve --port APPROVED_LOOPBACK_PORT
+```
+
+Listener is always `127.0.0.1`. Put a reviewed HTTPS reverse proxy in front of it,
+with the exact configured Host preserved. Unencrypted remote origins are refused.
+For local development only, an explicit `http://127.0.0.1:PORT` origin works.
+Do not expose the Python listener directly on the Internet.
+
+In a protected operator terminal, mint a one-use, ten-minute device-pairing link:
+
+```sh
+python homebase_chat.py --data-dir /PRIVATE/STATE --account SAVED_LABEL --origin https://APPROVED-HOST pair
+```
+
+The terminal output is a **private bearer capability**. Do not put it in Git,
+public/retained logs, tickets, chat, Slack or analytics. Open it directly in the
+owner's phone/iPad browser over a protected delivery channel. A new link invalidates
+previous pending links; successful pairing consumes it. The fragment is removed
+before requests and exchanged for a seven-day HttpOnly/Secure/SameSite=Strict
+cookie on HTTPS. No OAuth token enters the browser, no browser persistent storage
+is used, and public visual-shell access alone cannot read data or use inference.
+Pairing delegates access to this selected registration; it is not new provider
+consent or a multi-user identity service. Anyone obtaining a live link can become
+an owner browser. Cookie theft likewise requires session revocation.
+
+Lost browser: run `revoke-browsers` with the same options to remove all sessions,
+then mint a replacement `pair` link. Cookie loss/expiry needs another private link,
+not another provider login while its grant remains valid. Server restart retains
+sessions. Registration/account changes require a separate private state directory.
+`Sign out` removes every owner-browser session, stops working text, and attempts
+provider revocation when no worker holds the refresh lock. If a worker is active,
+remote revocation is explicitly pending; after it releases the lock, run the
+protected `homebase_probe.py --data-dir /PRIVATE/STATE --account SAVED_LABEL signout`
+or disconnect Homebase in ChatGPT settings. Local sessions remain blocked meanwhile.
+History/memory are retained, not deleted by sign-out.
+
+The UI streams durable provider text through 700ms polling of saved messages.
+Closing/reloading a tab does not terminate or lose the submitted turn. Stop marks
+the reply incomplete immediately; the worker releases its provider connection at
+the next stream event or the 60-second read timeout. A new send is refused until
+that worker exits. Request UUIDs make transport retries idempotent. A terminal
+failed reply can be retried explicitly without editing the retained draft.
+
+## Canonical memory and context limits
+
+Open **Memory** to inspect/edit/forget records with scope, source and revisions.
+Or type one of these explicit commands (no provider inference is needed):
+
+```text
+/remember shared Title | an explicitly approved fact
+/remember thread Title | a note for this thread only
+/correct RECORD_ID CURRENT_REVISION | replacement fact
+/forget RECORD_ID CURRENT_REVISION
+```
+
+Only explicit owner commands/forms write memory. Model/external text cannot call
+an execution tool or promote inferred facts. Revisions reject stale concurrent
+edits atomically. A shared fact may appear in fresh threads; a thread note and
+other threads' transcripts cannot. Private seed is a version-1 JSON document with
+`records` containing `id`, `title`, `text`, `source`, `pinned`; only empty memory can
+be seeded. Generic example: `examples/memory.sample.json`. Keep personal seed
+outside this public repository; install its reviewed private payload separately.
+
+Each provider turn reads current records, builds a ≤2,000-character index,
+always loads ≤2,500 characters of pinned role/preferences, and retrieves at most
+four records/3,000 fact characters by lexical overlap with the current query.
+At most 128 active records, titles ≤80 chars and facts ≤1,500 chars are supported.
+The last six completed ordinary exchanges are included (each message excerpt
+≤1,500 chars), plus current user text ≤8,000 chars. Older history is represented
+by deterministic excerpts of up to six preceding exchanges (≤1,800 chars), not a
+semantic AI summary or infinite recall. Full transcripts remain on disk.
+
+Memory-command exchanges never enter provider history/summaries. Every response
+records revision provenance for the current index and included history. Correcting
+or forgetting a canonical record removes stale dependent turns from subsequent
+context and summaries. This conservative rule can omit otherwise unrelated prior
+turns after a memory edit; saved transcripts remain inspectable. An in-flight
+provider request uses the memory snapshot from its start, and its stale output is
+excluded on the next turn. Forget removes app memory, not past visible transcripts
+or user text explicitly supplied again.
+
+Durable private files: `session.json`, `session.lock`, `chat.sqlite3`, and
+`chat-server.lock` under the 0700 state directory, outside source. SQLite stores
+threads/messages/status/drafts, summaries, revisioned memory and hashed browser
+sessions/pairing capabilities. Credentials remain solely in `session.json`.
+A single process owns the chat-server lock. Atomic DB transactions survive process
+restart; interrupted working messages become incomplete on startup. Use protected
+consistent backups; never restore an old rotating provider token blindly.
+
+## Tests and evidence boundaries
+
+```sh
+python -m unittest discover -s tests -v
+node --check static/app.js
+```
+
+Provider tests use synthetic registrations/responses. Actual browser checks need
+an independently available Playwright/Chromium test environment (not runtime deps):
+
+```sh
+PYTHONPATH=. PLAYWRIGHT_PYTHON tests/browser_check.py LOCKED_APP_PYTHON /PRIVATE/BROWSER-EVIDENCE
+```
+
+Replace `PLAYWRIGHT_PYTHON` and `LOCKED_APP_PYTHON` with their executable paths.
+The browser harness launches a local server with a synthetic provider. Screenshots
+from resized desktop/phone/iPad-like viewports do not prove a physical iPad,
+remote HTTPS deployment, transferred account, live quota, refresh/revocation, or
+real subscription-backed website inference. No real OAuth files are read by tests.

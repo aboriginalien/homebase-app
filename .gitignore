@@ -16,3 +16,10 @@ data/
 dist/
 *.tar.gz
 *.zip
+
+# Durable chat and one-use application-session capabilities belong outside source.
+chat.sqlite3*
+chat-server.lock
+pairing.txt
+private-seed.json
+browser-evidence/

@@ -41,4 +41,4 @@ if [ "$probe_consent" != y ] && [ "$probe_consent" != Y ]; then
   exit 0
 fi
 "$probe_venv/bin/python" homebase_probe.py --data-dir "$probe_state" login
-"$probe_venv/bin/python" homebase_probe.py --data-dir "$probe_state" probe
+"$probe_venv/bin/python" homebase_probe.py --data-dir "$probe_state" probe --model gpt-5.6-sol

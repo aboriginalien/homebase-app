@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Homebase</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><main>
+<header><span>Homebase</span><nav aria-label="Chat controls"><button id="new">New thread</button><button id="threads" aria-expanded="false">Threads</button><button id="memory" aria-expanded="false">Memory</button><button id="signout">Sign out</button></nav></header>
+<p id="connection" class="quiet">Open your private device-pairing link to connect.</p>
+<p class="quiet">GPT-5.6 Sol · high · standard · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">ChatGPT-plan usage</a></p>
+<aside id="thread-panel" hidden aria-label="Saved threads"></aside>
+<aside id="memory-panel" hidden aria-label="Canonical memory"><p>Only explicit memories are shared. Thread notes stay in this thread.</p><p class="quiet">Commands: /remember shared Title | fact<br>/remember thread Title | fact<br>/correct ID REVISION | fact<br>/forget ID REVISION</p><div id="records"></div><form id="memory-form"><label>Title <input id="memory-title" maxlength="80" required></label><label>Scope <select id="memory-scope"><option value="shared">Shared</option><option value="thread">This thread</option></select></label><label>Fact <textarea id="memory-text" maxlength="1500" required></textarea></label><button>Remember</button></form></aside>
+<section id="messages" aria-label="Conversation"></section>
+<footer><p id="status" role="status" aria-live="polite"></p><form id="composer"><label class="sr-only" for="draft">Message</label><textarea id="draft" placeholder="Message Homebase" rows="3" maxlength="8000" disabled></textarea><div class="actions"><span class="quiet">Enter to send · Shift+Enter for a new line</span><button id="stop" type="button" hidden>Stop</button><button id="send" disabled>Send</button></div></form></footer>
+</main></body></html>
