@@ -62,7 +62,12 @@ registration without overwriting others. `status` shows distinct local labels;
 ## One response, no substitution
 
 `probe` queries the selected account's model catalog with its SIWC OAuth access
-token and chooses the returned GPT-6.1 Sol slug. If unavailable or ambiguous,
+token and chooses the returned GPT-6.1 Sol slug by default. To explicitly choose
+GPT-5.6 Sol, run `python homebase_probe.py probe --model gpt-5.6-sol` with the
+same installed virtual environment. This reuses the saved sign-in and does not
+open a new browser login. It selects only the requested visible model; an
+unavailable requested model never causes an automatic switch to another model.
+If unavailable or ambiguous,
 it stops. The fixed request is `Say exactly: Hello, world!`, with `store:false`,
 `stream:true`, `reasoning:{effort:"high"}`, and `service_tier:"default"` (standard;
 no Fast/priority opt-in). It requires a completed terminal event and returned

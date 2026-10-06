@@ -236,6 +236,22 @@ class StorageTests(unittest.TestCase):
             http.assert_not_called()
         self.assertTrue(self.store.path.exists())
 
+    def test_cli_explicit_model_reuses_saved_account_without_login(self):
+        with self.store.locked():
+            data = self.data(); self.store.save(data)
+        out = io.StringIO()
+        with patch.object(p, 'HTTP'), patch.object(p, 'discovery', return_value=document()), \
+                patch.object(p, 'renew', return_value=data['accounts']['first']), \
+                patch.object(p, 'local_login') as login, \
+                patch.object(p, 'probe', return_value={'completed': True}) as probe, \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(p.run(['--data-dir', str(self.store.directory),
+                                    'probe', '--model', 'gpt-5.6-sol']), 0)
+        login.assert_not_called()
+        self.assertEqual(probe.call_args.args[3], 'gpt-5.6-sol')
+        self.assertIn('target GPT-5.6 Sol / high / standard', out.getvalue())
+        self.assertNotIn('old-access', out.getvalue())
+
     def data(self):
         d = self.store.load()
         d['accounts'] = {'first': {'client_id': 'oaiapp_fixture', 'subject': 'fixture', 'issuer': p.ISSUER,
@@ -339,6 +355,42 @@ class StreamTests(unittest.TestCase):
         self.assertIs(k['json']['store'], False); self.assertIs(k['json']['stream'], True)
         self.assertNotIn('NEVER-USE-THIS-API-KEY', repr(k))
         self.assertNotIn('previous_response_id', k['json'])
+
+    def test_explicit_sol_does_not_choose_astra_or_hidden_sol(self):
+        sol = 'gpt-5.6-sol'
+        astra = {'slug': 'gpt-6-astra', 'visibility': 'list'}
+        self.assertEqual(p.choose_model({'models': [astra, {'slug': sol, 'visibility': 'list'}]}, sol), sol)
+        for models in [[astra], [astra, {'slug': sol, 'visibility': 'hide'}],
+                       [{'slug': sol, 'visibility': 'list'}, {'slug': sol, 'visibility': 'list'}]]:
+            with self.subTest(models=models), self.assertRaises(p.ProbeError):
+                p.choose_model({'models': models}, sol)
+        with self.assertRaises(p.ProbeError):
+            p.choose_model({'models': [astra]}, 'gpt-6-astra')
+
+    def test_explicit_sol_payload_and_completion_require_selected_model(self):
+        sol = 'gpt-5.6-sol'
+        http = MagicMock()
+        http.json.return_value = {'models': [{'slug': 'gpt-6-astra', 'visibility': 'list'},
+                                             {'slug': sol, 'visibility': 'list'}]}
+        response = http.request.return_value.__enter__.return_value
+        for terminal_model in [sol, p.MODEL]:
+            lines = []
+            for event in events(complete(model=terminal_model)):
+                lines += [b'data: ' + json.dumps(event).encode(), b'']
+            response.iter_lines.return_value = lines
+            if terminal_model == sol:
+                result = p.probe(http, {'access_token': 'synthetic-oauth'}, lambda _: None, sol)
+                self.assertEqual(result, {'completed': True, 'model': sol,
+                                         'reasoning': 'high', 'service_tier': 'default'})
+            else:
+                with self.assertRaises(p.ProbeError):
+                    p.probe(http, {'access_token': 'synthetic-oauth'}, lambda _: None, sol)
+            payload = http.request.call_args.kwargs['json']
+            self.assertEqual(payload['model'], sol)
+            self.assertEqual(payload['reasoning'], {'effort': 'high'})
+            self.assertEqual(payload['service_tier'], 'default')
+            self.assertIs(payload['store'], False)
+            self.assertIs(payload['stream'], True)
 
     def test_network_error_diagnostics_redact_secret(self):
         http = p.HTTP()

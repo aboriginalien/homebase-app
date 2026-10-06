@@ -29,6 +29,7 @@ ISSUER = "https://auth.openai.com"
 RESOURCE = "https://api.openai.com/v1"
 APP_NAME = "Homebase"
 MODEL = "gpt-6.1-sol"
+MODEL_NAMES = {MODEL: "GPT-6.1 Sol", "gpt-5.6-sol": "GPT-5.6 Sol"}
 SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 PLAN_SCOPES = {"offline_access", "resource.invoke", "chatgpt.tokens.use.direct"}
 USAGE_URL = "https://chatgpt.com/settings/usage"
@@ -559,18 +560,22 @@ def sse_events(lines):
         raise ProbeError("Interrupted response event; reply is incomplete.")
 
 
-def choose_model(catalog):
+def choose_model(catalog, requested_model=MODEL):
+    if requested_model not in MODEL_NAMES:
+        raise ProbeError("Unsupported explicit probe model; no substitute selected.")
+    display_name = MODEL_NAMES[requested_model]
     models = catalog.get("models")
     if not isinstance(models, list):
         raise ProbeError("Account model catalog contract is unavailable.")
     choices = [m for m in models if m.get("visibility") == "list" and
-               (m.get("slug") == MODEL or m.get("display_name", "").casefold() == "gpt-6.1 sol")]
-    exact = [m for m in choices if m.get("slug") == MODEL]
+               (m.get("slug") == requested_model or
+                m.get("display_name", "").casefold() == display_name.casefold())]
+    exact = [m for m in choices if m.get("slug") == requested_model]
     if len(exact) == 1:
         return exact[0]["slug"]
     if len(choices) == 1 and isinstance(choices[0].get("slug"), str) and choices[0]["slug"]:
         return choices[0]["slug"]
-    raise ProbeError("GPT-6.1 Sol is unavailable or ambiguous for this account; no substitute selected.")
+    raise ProbeError(display_name + " is unavailable or ambiguous for this account; no substitute selected.")
 
 
 def consume(events, model, emit):
@@ -598,9 +603,9 @@ def consume(events, model, emit):
     raise ProbeError("Stream ended without response.completed; reply is incomplete.")
 
 
-def probe(http, account, emit):
+def probe(http, account, emit, requested_model=MODEL):
     headers = {"Authorization": "Bearer " + account["access_token"]}
-    model = choose_model(http.json("GET", RESOURCE + "/models", headers=headers))
+    model = choose_model(http.json("GET", RESOURCE + "/models", headers=headers), requested_model)
     payload = {"model": model, "input": [{"role": "user", "content": "Say exactly: Hello, world!"}],
                "store": False, "stream": True, "reasoning": {"effort": "high"}, "service_tier": "default"}
     with http.request("POST", RESOURCE + "/responses", headers=headers, json=payload, stream=True) as r:
@@ -666,8 +671,11 @@ def run(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     login = commands.add_parser("login", help="Continue with ChatGPT using this computer's browser")
     login.add_argument("--new-account", action="store_true", help="Keep existing registrations; add a distinct one")
-    for command in ("init", "status", "probe", "signout"):
+    for command in ("init", "status", "signout"):
         commands.add_parser(command)
+    probe_command = commands.add_parser("probe")
+    probe_command.add_argument("--model", choices=tuple(MODEL_NAMES), default=MODEL,
+                               help="Explicit model choice; no automatic substitution")
     export = commands.add_parser("export", help="Offline selected-registration handoff; freezes helper use")
     export.add_argument("--file", type=Path, required=True, help="New owner-only file outside source")
     export.add_argument("--target-host-id", required=True, help="Already initialized destination VM host ID")
@@ -731,8 +739,9 @@ def run(argv=None):
             return 0
         key, _ = select_account(data, args.account)
         a = renew(http, d, store, data, key)
-        print("Using ChatGPT plan · target GPT-6.1 Sol / high / standard. Manage usage:", USAGE_URL)
-        result = probe(http, a, lambda delta: print(delta, end="", flush=True))
+        print("Using ChatGPT plan · target", MODEL_NAMES[args.model],
+              "/ high / standard. Manage usage:", USAGE_URL)
+        result = probe(http, a, lambda delta: print(delta, end="", flush=True), args.model)
         print("\nVerified completed response:", json.dumps(result))
         return 0
 
