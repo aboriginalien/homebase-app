@@ -107,10 +107,79 @@ First prove this same qualifying client locally. The official VM route creates
 a **distinct VM host ID**, completes OAuth locally with the same tool/client,
 user and workspace, then securely transfers the selected protected registration
 to its VM storage, preserving the VM host ID and letting the VM own refresh.
-This probe's `init` prepares a fresh host but does **not** implement transfer,
-deployment or remote web access. Do not copy the entire local state over a VM's
-host ID or share a refresh-token session between simultaneously refreshing
+This probe's `init` prepares a fresh host. The **offline** `export` and `import`
+commands below implement selected-registration files; they do not perform network
+transfer, deployment or remote web access. Do not copy the entire local state over
+a VM's host ID or share a refresh-token session between simultaneously refreshing
 processes. Credential transfer must be a separate authorized operation.
+
+### Offline selected-registration handoff
+
+Use these only after real local consent/proof, with a verified personal VM target
+and a separately authorized secure-channel operation. This is **not phone-only
+onboarding**. Native Codex device-code tokens/auth caches are not SIWC credentials
+for this importer. Native app-server authentication is not permitted for hosted
+services; replacing it with an arbitrary public callback is not supported.
+
+The following uppercase arguments are metadata/path placeholders resolved by the
+protected operator runtime, not values to paste literally or copy from a report.
+`ACCOUNT_LABEL` is the exact selected label from the helper's status; expected
+issued client and already-persisted VM host ID must match the selected registration.
+Never pass tokens in command arguments. Use this code revision on both hosts,
+the already prepared venv on the VM, and an initialized private VM state directory.
+Export/inbox parent directories must already exist with owner-only 0700 permissions
+outside source; files are 0600. Do not use a public temp directory as the parent.
+
+```sh
+python homebase_probe.py --data-dir HELPER_STATE --account ACCOUNT_LABEL export --file PRIVATE_EXPORT_DIR/registration.handoff.json --target-host-id VM_HOST_ID
+# A separately authorized pinned SSH channel copies only this protected file.
+python homebase_probe.py --data-dir VM_STATE --account ACCOUNT_LABEL import --file PRIVATE_VM_INBOX/registration.handoff.json --expected-client-id ISSUED_CLIENT_ID
+```
+
+Export selects only that account, validates the existing Homebase record, durably
+freezes helper use **before** publishing a new atomic file, then clears helper
+tokens without provider revocation. The original host and unrelated registrations
+are retained. Login/refresh/probe/signout of the frozen account are blocked before
+provider requests; signout must not accidentally revoke the transferred VM session.
+The export has only the selected record plus source/target host binding metadata.
+It refuses existing files, except an exactly matching protected file when recovering
+a previously frozen export whose final helper-state write failed.
+Quiesce all helper processes first and use this revision on both hosts. Do not
+run an older version that ignores the freeze marker: after a failed final write,
+the frozen helper record can still contain protected tokens pending cleanup.
+
+Import requires that the VM was initialized beforehand, explicit account/client
+metadata, exact bound VM host ID and a protected regular file. It rejects unknown
+formats/fields, native caches, duplicate JSON keys, oversized input, malformed or
+mismatched identity/token/grant metadata, links, unsafe modes and path collisions.
+It never replaces an existing registration. The atomic state addition preserves
+VM host ID and all unrelated records/active selection; on an empty VM it selects
+the imported account. The VM input file is removed only after state commit.
+
+**Offline checks do not validate JWT signatures or server entitlement.** They
+check shape and consistency of the retained ID token against the previously
+validated Homebase record, including issuer/subject/audience/client. The trusted
+helper and pinned secure channel supply provenance. An expired retained ID token
+or expired access metadata is allowed for the documented refresh/reauthorization
+lifecycle; actual refresh/inference must subsequently succeed. Never treat an
+imported file, granted-scope strings or a model list alone as proof of plan access.
+
+On any failure, preserve protected state/files and keep helper use stopped. Before
+an export-file write failure, helper may already be durably frozen; retry the same
+account/target once the storage error is resolved. If the final helper write failed
+after the file was published, retry export against that **identical** file to clear
+the remaining frozen helper tokens. Do not retarget, automatically unfreeze or
+restore a backup after the VM may have refreshed. If VM commit failed, its prior
+state and input file remain; retry after resolving the actual cause. If input-file
+cleanup failed after a successful VM commit, import reports failure and refuses
+reimport over that account: verify protected VM state, remove only the residual
+inbox file and record cleanup. No false success from partially completed cleanup.
+
+After verified import, securely remove the helper export copy. Keep VM as the
+single refresh owner; a future helper session needs fresh explicit OAuth consent,
+not resurrection of transferred refresh tokens. VM signout/ChatGPT disconnect can
+revoke the transferred session; current provider docs do not offer host-specific
+revocation for transferred sessions. Unrelated registrations are not cleaned up.
 
 ## Official contracts
 

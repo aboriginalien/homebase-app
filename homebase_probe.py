@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -272,8 +273,224 @@ def account_key(record):
     return hashlib.sha256((record["issuer"] + "|" + record["subject"] + "|" + record["client_id"]).encode()).hexdigest()[:16]
 
 
+HANDOFF_LIMIT = 262144
+RECORD_FIELDS = {"client_id", "issuer", "subject", "scopes", "expires_at", *TOKEN_FIELDS}
+
+
+def host_identifier(value):
+    try:
+        if not isinstance(value, str) or not value.startswith("urn:uuid:"):
+            raise ValueError()
+        parsed = uuid.UUID(value[9:])
+        if parsed.version != 4 or str(parsed) != value[9:]:
+            raise ValueError()
+        return value
+    except (ValueError, AttributeError):
+        raise ProbeError("Handoff requires a valid distinct host identifier.") from None
+
+
+def handoff_record(record, key, expected_client):
+    """Offline shape/claim consistency only; NOT signature or live grant validation.
+
+    Only an already-validated Homebase registration carried over a trusted channel
+    is an acceptable source. This is not a generic OAuth/Codex-cache importer.
+    """
+    try:
+        if not isinstance(record, dict) or set(record) != RECORD_FIELDS:
+            raise ValueError()
+        client = record["client_id"]
+        if (not isinstance(client, str) or not client.startswith("oaiapp_")
+                or len(client) > 256 or client != expected_client
+                or record["issuer"] != ISSUER
+                or not isinstance(record["subject"], str) or not 0 < len(record["subject"]) <= 512
+                or account_key(record) != key):
+            raise ValueError()
+        scopes = record["scopes"]
+        if (not isinstance(scopes, list) or len(scopes) > 32
+                or not all(isinstance(s, str) and 0 < len(s) <= 128 for s in scopes)
+                or len(set(scopes)) != len(scopes) or not PLAN_SCOPES.issubset(scopes)):
+            raise ValueError()
+        expiry = record["expires_at"]
+        if (isinstance(expiry, bool) or not isinstance(expiry, (int, float))
+                or not math.isfinite(expiry) or not 0 < expiry <= time.time() + 604800):
+            raise ValueError()
+        if not all(isinstance(record[f], str) and 0 < len(record[f]) <= 65536
+                   and not any(ord(c) < 32 or ord(c) == 127 for c in record[f]) for f in TOKEN_FIELDS):
+            raise ValueError()
+        header = jwt.get_unverified_header(record["id_token"])
+        if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str) or not header["kid"]:
+            raise ValueError()
+        claims = jwt.decode(record["id_token"], options={"verify_signature": False})
+        aud = claims.get("aud")
+        matching_aud = (aud == client or
+                        (isinstance(aud, list) and 0 < len(aud) <= 16
+                         and all(isinstance(v, str) and v for v in aud)
+                         and len(set(aud)) == len(aud) and client in aud))
+        if (claims.get("iss") != ISSUER or claims.get("sub") != record["subject"]
+                or not matching_aud
+                or (isinstance(aud, list) and len(aud) > 1 and claims.get("azp") != client)
+                or ("azp" in claims and claims["azp"] != client)):
+            raise ValueError()
+        # A retained ID token can be expired after refresh; do not pretend to
+        # authenticate it here. Preserve it as metadata for later reauthorization.
+        for name in ("iat", "exp"):
+            value = claims[name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError()
+        if not 0 < claims["iat"] <= time.time() + 300 or claims["exp"] <= claims["iat"]:
+            raise ValueError()
+        return record
+    except (ValueError, TypeError, KeyError, jwt.PyJWTError):
+        raise ProbeError("Handoff registration is malformed or does not match the selected account/client.") from None
+
+
+def handoff_path(path, store):
+    path = Path(path).expanduser().absolute()
+    if (path != path.resolve() or path.resolve().is_relative_to(SOURCE)
+            or path in (store.path.absolute(), (store.directory / "session.lock").absolute())
+            or path.name.startswith(".session-")):
+        raise ProbeError("Handoff path must be outside source and separate from protected session files.")
+    check_private(path.parent, directory=True)
+    if store.directory.absolute() != store.directory.resolve():
+        raise ProbeError("Handoff storage cannot traverse symlinks.")
+    check_private(store.directory, directory=True)
+    return path
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write_handoff(path, payload):
+    """Atomic new-file publication; never replace an existing destination."""
+    fd, name = tempfile.mkstemp(prefix=".handoff-", dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as out:
+            out.write(payload)
+            out.flush()
+            os.fsync(out.fileno())
+        os.link(name, path, follow_symlinks=False)  # EEXIST rather than overwrite.
+        os.unlink(name)
+        sync_directory(path.parent)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def unique_object(pairs):
+    obj = {}
+    for name, value in pairs:
+        if name in obj:
+            raise ValueError()
+        obj[name] = value
+    return obj
+
+
+def read_handoff(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size > HANDOFF_LIMIT):
+            raise ProbeError("Handoff input must be a bounded owner-only regular file with no links.")
+        raw = source.read(HANDOFF_LIMIT + 1)
+    if len(raw) > HANDOFF_LIMIT:
+        raise ProbeError("Handoff input exceeds its safe size bound.")
+    return json.loads(raw, object_pairs_hook=unique_object,
+                      parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+
+
+def export_registration(store, data, key, destination, target_host):
+    """Freeze helper use BEFORE creating a transferable file, then clear tokens.
+
+    Crash/failure leaves the helper frozen; never silently restore refresh ownership.
+    Call with the existing Store lock. No network or plaintext output.
+    """
+    try:
+        if not key:
+            raise ProbeError("Select an explicit saved account for handoff.")
+        key, account = select_account(data, key)
+        target = host_identifier(target_host)
+        source = host_identifier(data["host_id"])
+        if target == source:
+            raise ProbeError("Helper and VM host identifiers must differ.")
+        path = handoff_path(destination, store)
+        pending = account.get("handoff")
+        if pending and pending != {"phase": "frozen", "target_host_id": target}:
+            raise ProbeError("Account is already handed off or frozen for another target.")
+        record = {name: value for name, value in account.items() if name != "handoff"}
+        handoff_record(record, key, record.get("client_id"))
+        document = {"version": 1, "kind": "homebase-siwc-registration",
+                    "source_host_id": source, "target_host_id": target,
+                    "account": key, "registration": record}
+        payload = json.dumps(document, allow_nan=False).encode()
+        if len(payload) > HANDOFF_LIMIT:
+            raise ProbeError("Handoff input exceeds its safe size bound.")
+        if path.exists() or path.is_symlink():
+            if not pending or read_handoff(path) != document:
+                raise ProbeError("Handoff output already exists or differs; no file was overwritten.")
+            # Recovery after a final source-save failure: consume the identical
+            # protected export in place, never unfreeze or replace its bytes.
+        else:
+            account["handoff"] = {"phase": "frozen", "target_host_id": target}
+            store.save(data)  # Durable freeze BEFORE any export can be transferred.
+            write_handoff(path, payload)
+        for name in TOKEN_FIELDS:
+            account.pop(name, None)
+        account["scopes"] = []
+        account["expires_at"] = 0
+        account["handoff"]["phase"] = "exported"
+        store.save(data)
+    except (OSError, ValueError, TypeError, KeyError):
+        raise ProbeError("Handoff export failed; preserve private state/files and keep helper use stopped.") from None
+
+
+def import_registration(store, data, key, source_path, expected_client):
+    """Import one protected record without changing VM host or unrelated sessions.
+
+    Offline consistency checks trust the protected source/channel, not JWT signature.
+    Call with the existing Store lock. No network or plaintext output.
+    """
+    try:
+        if not key:
+            raise ProbeError("Select the expected saved account for handoff.")
+        path = handoff_path(source_path, store)
+        document = read_handoff(path)
+        fields = {"version", "kind", "source_host_id", "target_host_id", "account", "registration"}
+        if (not isinstance(document, dict) or set(document) != fields
+                or type(document["version"]) is not int or document["version"] != 1
+                or document["kind"] != "homebase-siwc-registration"
+                or document["account"] != key):
+            raise ProbeError("Handoff document does not match the expected format/account.")
+        source = host_identifier(document["source_host_id"])
+        target = host_identifier(document["target_host_id"])
+        if target != host_identifier(data["host_id"]) or target == source:
+            raise ProbeError("Handoff is bound to a different VM host.")
+        record = handoff_record(document["registration"], key, expected_client)
+        if key in data["accounts"]:
+            raise ProbeError("VM account already exists; no session was replaced.")
+        updated = {**data, "accounts": {**data["accounts"], key: record},
+                   "active": data.get("active") or key}
+        store.save(updated)  # Atomic local commit; unrelated active account retained.
+        path.unlink()  # Consume only AFTER successful commit.
+        sync_directory(path.parent)
+    except (OSError, ValueError, TypeError, KeyError):
+        raise ProbeError("Handoff import failed; inspect protected VM state before retry; no success confirmed.") from None
+
+
+def require_local_owner(account):
+    if account and account.get("handoff"):
+        raise ProbeError("Account is handed off/frozen; helper login, refresh and revocation are blocked.")
+
+
 def renew(http, d, store, data, key):
     a = data["accounts"][key]
+    require_local_owner(a)
     if not PLAN_SCOPES.issubset(a.get("scopes", [])) or not all(a.get(f) for f in TOKEN_FIELDS):
         raise ProbeError("Signed out or missing plan permission; run login.")
     if time.time() < a["expires_at"] - 60:
@@ -293,6 +510,7 @@ def renew(http, d, store, data, key):
 
 def signout(http, d, store, data, key):
     a = data["accounts"][key]
+    require_local_owner(a)
     confirmed = not a.get("refresh_token")
     for attempt in range(3):
         if confirmed:
@@ -448,16 +666,36 @@ def run(argv=None):
     login.add_argument("--new-account", action="store_true", help="Keep existing registrations; add a distinct one")
     for command in ("init", "status", "probe", "signout"):
         commands.add_parser(command)
+    export = commands.add_parser("export", help="Offline selected-registration handoff; freezes helper use")
+    export.add_argument("--file", type=Path, required=True, help="New owner-only file outside source")
+    export.add_argument("--target-host-id", required=True, help="Already initialized destination VM host ID")
+    importer = commands.add_parser("import", help="Offline protected import; never proves entitlement")
+    importer.add_argument("--file", type=Path, required=True, help="Protected transferred file; consumed on success")
+    importer.add_argument("--expected-client-id", required=True, help="Expected issued SIWC client, not a token")
     args = parser.parse_args(argv)
     store = Store(args.data_dir)
     with store.locked():
+        if args.command == "import" and not store.path.exists():
+            raise ProbeError("Initialize the VM host first; import cannot invent a receiving host.")
         data = store.load()
         if args.command in ("init", "status"):
             print("Local host initialized. This is not provider authentication.")
             for key, a in data["accounts"].items():
                 print(key, "active" if key == data["active"] else "saved",
+                      "handed off/frozen; helper use blocked" if a.get("handoff") else
                       "local plan grant present (not revalidated)" if a.get("access_token") else "signed out")
             return 0
+        if args.command == "export":
+            export_registration(store, data, args.account, args.file, args.target_host_id)
+            print("Protected handoff prepared. Helper session frozen/cleared; no transfer or inference verified.")
+            return 0
+        if args.command == "import":
+            import_registration(store, data, args.account, args.file, args.expected_client_id)
+            print("Protected registration imported; input consumed. VM owns refresh; entitlement/inference NOT verified.")
+            return 0
+        if args.command != "login" or args.account or (data.get("active") and not args.new_account):
+            _, selected = select_account(data, args.account)
+            require_local_owner(selected)  # Before discovery or signout's cleanup handler.
         http = HTTP()
         if args.command == "signout":
             key, a = select_account(data, args.account)
@@ -502,6 +740,9 @@ def main():
         return run()
     except ProbeError as error:
         print("Homebase:", error, file=sys.stderr)
+        return 1
+    except OSError:
+        print("Homebase: Protected local storage operation failed; preserve state before retry.", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("Homebase: stopped; completion was not confirmed.", file=sys.stderr)

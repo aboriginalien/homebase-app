@@ -9,6 +9,8 @@ __pycache__/
 session.json
 session.lock
 .session-*
+.handoff-*
+*.handoff.json
 credentials/
 data/
 dist/
