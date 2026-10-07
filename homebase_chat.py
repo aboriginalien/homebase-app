@@ -59,7 +59,7 @@ class App:
         return {'account':self.account,'connected':usable,'model':MODEL,'reasoning':'high',
                 'speed':'standard','usage_url':provider.USAGE_URL}
 
-    def send(self, thread, request, text):
+    def send(self, thread, request, text, *, source='typed', draft_revision=None):
         if not isinstance(text,str) or not text.strip() or len(text)>8000:
             raise provider.ProbeError('Message must contain 1–8000 characters.')
         try:uuid.UUID(request)
@@ -68,9 +68,11 @@ class App:
             if self.jobs:
                 existing=self.state.thread(thread)['messages']
                 match=next((r for r in existing if r['request']==request and r['role']=='assistant'),None)
-                if match:return {'message':match['id'],'started':False}
+                if match:
+                    identity,started=self.state.begin(thread,request,text,source=source,draft_revision=draft_revision)
+                    return {'message':identity,'started':started}
                 raise provider.ProbeError('A reply is still stopping or working. Wait before sending.')
-            identity,started=self.state.begin(thread,request,text)
+            identity,started=self.state.begin(thread,request,text,source=source,draft_revision=draft_revision)
             if started:
                 stop=threading.Event();job={'stop':stop,'response':None,'thread':thread,'request':request,'text':''}
                 self.jobs[identity]=job
@@ -233,8 +235,10 @@ class Handler(BaseHTTPRequestHandler):
             self.auth(write=True)
             if path=='/api/new':return self.reply(200,{'id':self.app.state.new_thread()})
             if path=='/api/delete-thread':return self.reply(200,self.app.delete_thread(data.get('thread')))
-            if path=='/api/send':return self.reply(202,self.app.send(data.get('thread'),data.get('request'),data.get('text')))
-            if path=='/api/draft':self.app.state.draft(data.get('thread'),checked_text(data.get('text'),8000));return self.reply(200,{'saved':True})
+            if path=='/api/send':return self.reply(202,self.app.send(data.get('thread'),data.get('request'),data.get('text'),source=data.get('source','typed'),draft_revision=data.get('draft_revision')))
+            if path=='/api/draft':
+                revision=self.app.state.draft(data.get('thread'),checked_text(data.get('text'),8000))
+                return self.reply(200,{'saved':True,'draft_revision':revision})
             if path=='/api/stop':self.app.stop(data.get('thread'));return self.reply(200,{'stopped':True})
             if path=='/api/memory':
                 result=self.app.state.change(data.get('action'),title=data.get('title',''),text=checked_text(data.get('text',''),1500),
@@ -295,3 +299,4 @@ if __name__=='__main__':
     except provider.ProbeError as e:print('Homebase:',str(e),file=sys.stderr);raise SystemExit(1)
     except KeyboardInterrupt:raise SystemExit(130)
     except Exception:print('Homebase: operation failed; preserve private state. No success confirmed.',file=sys.stderr);raise SystemExit(1)
+

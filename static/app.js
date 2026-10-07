@@ -79,7 +79,9 @@ function render(data){
  if(!working&&!sending){
   const last=data.messages.at(-1);
   if(last?.role==='assistant'&&last.request===pendingId){
-   if(last.status==='completed'){if(!dirtyDraft||$('draft').value===pendingText){$('draft').value='';dirtyDraft=false;}pendingId='';status('');}
+   // The server clears only the submitted typed-draft revision. Preserve local
+   // edits and drafts from another tab, even if their text equals the request.
+   if(last.status==='completed'){pendingId='';status('');}
    else {status(last.error||'Reply is incomplete. Your draft is saved.');pendingId='';}
   }
  }
@@ -152,3 +154,4 @@ async function boot(){
 }
 window.addEventListener('pagehide',()=>{if(authenticated&&thread&&dirtyDraft){fetch('/api/draft',{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({thread,text:$('draft').value})}).catch(()=>{});}});
 boot();
+

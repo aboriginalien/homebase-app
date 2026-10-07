@@ -49,6 +49,12 @@ class State:
             if 'completed' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
                 # Older assistant rows record generation start, never a guessed completion.
                 db.execute('ALTER TABLE messages ADD COLUMN completed REAL')
+            if 'draft_revision' not in {r[1] for r in db.execute('PRAGMA table_info(threads)')}:
+                db.execute('ALTER TABLE threads ADD COLUMN draft_revision INTEGER NOT NULL DEFAULT 0')
+            for column, definition in [('source', "TEXT NOT NULL DEFAULT 'typed'"),
+                                       ('submitted_draft_revision', 'INTEGER')]:
+                if column not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
+                    db.execute('ALTER TABLE messages ADD COLUMN '+column+' '+definition)
             row = db.execute("SELECT value FROM meta WHERE key='owner'").fetchone()
             if row and row[0] != owner:
                 raise ProbeError('App data belongs to a different registration; use separate private state.')
@@ -118,7 +124,7 @@ class State:
             row = db.execute('SELECT * FROM threads WHERE id=?',(identity,)).fetchone()
             if not row: raise ProbeError('Thread does not exist.')
             messages = [dict(r) for r in db.execute(
-                'SELECT id,request,role,text,status,error,created,completed FROM messages WHERE thread=? ORDER BY id',(identity,))]
+                'SELECT id,request,role,text,status,error,created,completed,source FROM messages WHERE thread=? ORDER BY id',(identity,))]
             for message in messages:
                 phase=db.execute('SELECT phase FROM tool_turns WHERE assistant_message_id=?',(message['id'],)).fetchone()
                 if phase:message['phase']=phase['phase']
@@ -129,8 +135,9 @@ class State:
 
     def draft(self, identity, text):
         with self.connect() as db:
-            if not db.execute('UPDATE threads SET draft=? WHERE id=?',(text,identity)).rowcount:
+            if not db.execute('UPDATE threads SET draft=?,draft_revision=draft_revision+1 WHERE id=?',(text,identity)).rowcount:
                 raise ProbeError('Thread does not exist.')
+            return db.execute('SELECT draft_revision FROM threads WHERE id=?',(identity,)).fetchone()[0]
 
     def delete_thread(self, identity):
         with self.connect() as db:
@@ -144,21 +151,35 @@ class State:
             db.execute('DELETE FROM threads WHERE id=?', (identity,))
 
 
-    def begin(self, identity, request, text):
+    def begin(self, identity, request, text, *, source='typed', draft_revision=None):
+        if source not in ('typed','voice'):
+            raise ProbeError('Invalid message source.')
+        if source=='voice' and (type(draft_revision) is not int or draft_revision<0):
+            raise ProbeError('Voice requires the original draft revision.')
         with self.connect() as db:
-            existing = db.execute('SELECT id FROM messages WHERE thread=? AND request=? AND role=\'assistant\'',
+            existing = db.execute('SELECT id,source,submitted_draft_revision FROM messages WHERE thread=? AND request=? AND role=\'assistant\'',
                                   (identity,request)).fetchone()
-            if existing: return existing['id'],False
+            if existing:
+                submitted=db.execute("SELECT text FROM messages WHERE thread=? AND request=? AND role='user'",(identity,request)).fetchone()
+                if not submitted or submitted[0]!=text or existing['source']!=source or (source=='voice' and existing['submitted_draft_revision']!=draft_revision):
+                    raise ProbeError('Send identifier belongs to a different frozen message. Reconcile the original request.')
+                return existing['id'],False
             if db.execute("SELECT 1 FROM messages WHERE status='working'").fetchone():
                 raise ProbeError('A reply is already working. Stop it or wait before sending.')
-            row=db.execute('SELECT title FROM threads WHERE id=?',(identity,)).fetchone()
+            row=db.execute('SELECT title,draft,draft_revision FROM threads WHERE id=?',(identity,)).fetchone()
             if not row: raise ProbeError('Thread does not exist.')
+            if source=='voice' and (row['draft'] or row['draft_revision']!=draft_revision):
+                raise ProbeError('Typed draft changed; voice was not sent. Preserve it and start voice again.')
             title = text.replace('\n',' ')[:64] if row['title']=='New thread' else row['title']
-            db.execute('UPDATE threads SET title=?,updated=?,draft=? WHERE id=?',(title,time.time(),text,identity))
-            db.execute('INSERT INTO messages(thread,request,role,text,status,created) VALUES(?,?,?,?,?,?)',
-                       (identity,request,'user',text,'saved',time.time()))
-            cur=db.execute('INSERT INTO messages(thread,request,role,text,status,created) VALUES(?,?,?,?,?,?)',
-                           (identity,request,'assistant','','working',time.time()))
+            submitted_revision=row['draft_revision'] if source=='voice' else row['draft_revision']+1
+            if source=='typed':
+                db.execute('UPDATE threads SET title=?,updated=?,draft=?,draft_revision=? WHERE id=?',(title,time.time(),text,submitted_revision,identity))
+            else:
+                db.execute('UPDATE threads SET title=?,updated=? WHERE id=?',(title,time.time(),identity))
+            db.execute('INSERT INTO messages(thread,request,role,text,status,created,source,submitted_draft_revision) VALUES(?,?,?,?,?,?,?,?)',
+                       (identity,request,'user',text,'saved',time.time(),source,submitted_revision))
+            cur=db.execute('INSERT INTO messages(thread,request,role,text,status,created,source,submitted_draft_revision) VALUES(?,?,?,?,?,?,?,?)',
+                           (identity,request,'assistant','','working',time.time(),source,submitted_revision))
             return cur.lastrowid,True
 
     def update(self, identity, text, status='working', error=''):
@@ -168,12 +189,13 @@ class State:
 
     def finish(self, identity, text, status='completed', error=''):
         with self.connect() as db:
-            row=db.execute('SELECT thread,request FROM messages WHERE id=?',(identity,)).fetchone()
+            row=db.execute('SELECT thread,request,source,submitted_draft_revision FROM messages WHERE id=?',(identity,)).fetchone()
             changed=db.execute("UPDATE messages SET text=?,status=?,error=?,completed=? WHERE id=? AND status='working'",
                                (text,status,error,time.time() if status=='completed' else None,identity)).rowcount
-            if changed and status=='completed':
+            if changed and status=='completed' and row['source']=='typed':
                 submitted=db.execute("SELECT text FROM messages WHERE thread=? AND request=? AND role='user'",(row['thread'],row['request'])).fetchone()[0]
-                db.execute("UPDATE threads SET draft='' WHERE id=? AND draft=?",(row['thread'],submitted))
+                db.execute("UPDATE threads SET draft='',draft_revision=draft_revision+1 WHERE id=? AND draft=? AND (? IS NULL OR draft_revision=?)",
+                           (row['thread'],submitted,row['submitted_draft_revision'],row['submitted_draft_revision']))
             return bool(changed)
 
     def references(self, identity, references):
@@ -288,3 +310,4 @@ class State:
                     raise ProbeError('Invalid seed record.')
                 db.execute('INSERT INTO memory VALUES(?,?,?,?,?,?,1,?,0)',
                            (r['id'],r['title'],r['text'],'shared',None,r['source'],int(r['pinned'])))
+
