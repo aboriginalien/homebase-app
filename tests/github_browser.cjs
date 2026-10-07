@@ -20,5 +20,7 @@ const server=spawn(process.argv[2],[path.join(__dirname,'browser_server.py'),tem
  fixture.messages[0].text='Updated stream';await page.evaluate(data=>render(data),fixture);assert.equal(await page.locator('details.activity[open]').count(),1);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  assert.ok((await page.locator('details.activity summary').boundingBox()).height>=44);assert.deepEqual(errors,[]);
- console.log(JSON.stringify({activity_collapsed:true,expanded_state_preserved:true,verified_link:true,html_escaped:true,unsafe_link_rejected:true,mobile_layout:true,touch_target:true,page_errors:errors}));
+ await page.evaluate(()=>{document.getElementById('github-connection').hidden=false;document.getElementById('github-connection').textContent='GitHub connected · 28 repositories';clearPrivate();});
+ assert.equal(await page.locator('#github-connection').innerText(),'');assert.equal(await page.locator('#github-connection').isVisible(),false);assert.equal(await page.locator('details.activity').count(),0);
+ console.log(JSON.stringify({activity_collapsed:true,expanded_state_preserved:true,verified_link:true,html_escaped:true,unsafe_link_rejected:true,mobile_layout:true,touch_target:true,private_display_cleared:true,page_errors:errors}));
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();server.kill();fs.rmSync(temporary,{recursive:true,force:true});});

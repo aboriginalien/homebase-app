@@ -35,10 +35,10 @@ async function api(path,body){
  if(!r.ok){if(r.status===401){authenticated=false;clearPrivate();controls();}throw new Error(value.error||'Request failed; your draft is retained.');}return value;
 }
 function panel(name,visible){$(name+'-panel').hidden=!visible;$(name==='thread'?'threads':'memory').setAttribute('aria-expanded',String(visible));}
-function clearPrivate(){ $('messages').replaceChildren();$('records').replaceChildren();$('thread-panel').replaceChildren();panel('memory',false);panel('thread',false);$('draft').value='';$('connection').textContent='Disconnected';renderedSignature=''; }
+function clearPrivate(){ $('messages').replaceChildren();$('records').replaceChildren();$('thread-panel').replaceChildren();panel('memory',false);panel('thread',false);$('draft').value='';$('connection').textContent='Disconnected';$('github-connection').textContent='';$('github-connection').hidden=true;renderedSignature=''; }
 function status(text){$('status').textContent=text;}
 async function githubStatus(){
- try{const value=await api('/api/github/status');const label=$('github-connection');
+ try{const value=await api('/api/github/status');if(!authenticated)return;const label=$('github-connection');
   label.hidden=value.state==='off';
   label.textContent=value.state==='ready'?'GitHub connected · '+value.repository_count+' repositories':value.state==='configured'?'GitHub configured · connects when needed':'GitHub unavailable · chat is still available';
  }catch{/* GitHub readiness must never block the conversation. */}
