@@ -81,6 +81,15 @@ class App:
                     # Do not synchronously close requests' reader from another thread.
                     # Status is durable immediately; worker checks between events/read timeout.
 
+    def delete_thread(self, thread):
+        try:uuid.UUID(thread)
+        except (ValueError,TypeError,AttributeError):raise provider.ProbeError('Invalid thread identifier.') from None
+        with self.guard:
+            if any(job['thread']==thread for job in self.jobs.values()):
+                raise provider.ProbeError('Stop the reply and wait for it to finish stopping before deleting this thread.')
+            self.state.delete_thread(thread)
+        return {'deleted':True}
+
     def memory_command(self, text, thread):
         if text.startswith('/remember '):
             parts=text[len('/remember '):].split('|',1)
@@ -247,6 +256,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{'csrf':csrf},cookie=cookie)
             self.auth(write=True)
             if path=='/api/new':return self.reply(200,{'id':self.app.state.new_thread()})
+            if path=='/api/delete-thread':return self.reply(200,self.app.delete_thread(data.get('thread')))
             if path=='/api/send':return self.reply(202,self.app.send(data.get('thread'),data.get('request'),data.get('text')))
             if path=='/api/draft':self.app.state.draft(data.get('thread'),checked_text(data.get('text'),8000));return self.reply(200,{'saved':True})
             if path=='/api/stop':self.app.stop(data.get('thread'));return self.reply(200,{'stopped':True})

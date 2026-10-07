@@ -326,3 +326,11 @@ The browser harness launches a local server with a synthetic provider. Screensho
 from resized desktop/phone/iPad-like viewports do not prove a physical iPad,
 remote HTTPS deployment, transferred account, live quota, refresh/revocation, or
 real subscription-backed website inference. No real OAuth files are read by tests.
+
+
+## Thread controls (HB-008)
+Threads and Memory stay highlighted while their own panels are open. Both panels can be open independently. New thread creates a conversation on every press.
+In Threads, Delete asks for confirmation naming the conversation. Confirming removes that conversation, draft, summary and thread-only notes; shared memories and other threads stay. A working or still-stopping reply must finish before deletion. Deleting the open conversation opens a remaining thread or a new empty conversation. Cancel leaves it intact.
+Deletion removes application database records; this is not a guarantee of forensic erasure from storage or operator backups. No provider conversation is stored (store:false).
+
+Developer regression checks: run `python -m unittest discover -s tests -p 'test_*.py' -v`. The new browser fixture uses Node plus Playwright 1.51.1 and its Chromium headless shell: `PLAYWRIGHT_MODULE=/path/to/playwright node tests/thread_controls_browser.cjs /path/to/app/python /path/to/output`. It starts an isolated loopback server with synthetic registration/provider data. CSP bypass applies only to browser-test predicate instrumentation; application CSP is unchanged.

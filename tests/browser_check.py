@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as temp:
                 assert page.locator('#send').bounding_box()['height']>=44
                 page.screenshot(path=str(output/(name+'.png')),full_page=True)
                 results.append(name+' viewport: no horizontal overflow; touch target >=44px')
-            page.locator('#threads').click();page.wait_for_selector('#thread-panel button');page.locator('#thread-panel button').last.click()
+            page.locator('#threads').click();page.wait_for_selector('#thread-panel button');page.locator('#thread-panel .thread-open').last.click()
             page.wait_for_function("() => document.querySelectorAll('.message').length >= 2")
             results.append('saved thread reopened')
             page.reload();page.wait_for_function("() => document.querySelector('#draft').disabled === false")

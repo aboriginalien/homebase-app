@@ -117,6 +117,17 @@ class State:
             if not db.execute('UPDATE threads SET draft=? WHERE id=?',(text,identity)).rowcount:
                 raise ProbeError('Thread does not exist.')
 
+    def delete_thread(self, identity):
+        with self.connect() as db:
+            if not db.execute('SELECT 1 FROM threads WHERE id=?', (identity,)).fetchone():
+                raise ProbeError('Thread does not exist. Reload Threads.')
+            if db.execute("SELECT 1 FROM messages WHERE thread=? AND status='working'", (identity,)).fetchone():
+                raise ProbeError('Stop the reply and wait for it to finish stopping before deleting this thread.')
+            db.execute("DELETE FROM memory WHERE scope='thread' AND thread=?", (identity,))
+            db.execute('DELETE FROM messages WHERE thread=?', (identity,))
+            db.execute('DELETE FROM threads WHERE id=?', (identity,))
+
+
     def begin(self, identity, request, text):
         with self.connect() as db:
             existing = db.execute('SELECT id FROM messages WHERE thread=? AND request=? AND role=\'assistant\'',

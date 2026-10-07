@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Homebase</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
 <body><main>
-<header><span>Homebase</span><nav aria-label="Chat controls"><button id="new">New thread</button><button id="threads" aria-expanded="false">Threads</button><button id="memory" aria-expanded="false">Memory</button><button id="signout">Sign out</button></nav></header>
+<header><span>Homebase</span><nav aria-label="Chat controls"><button id="new">New thread</button><button id="threads" aria-expanded="false" aria-controls="thread-panel">Threads</button><button id="memory" aria-expanded="false" aria-controls="memory-panel">Memory</button><button id="signout">Sign out</button></nav></header>
 <p id="connection" class="quiet">Open your private device-pairing link to connect.</p>
 <p class="quiet">GPT-5.6 Sol · high · standard · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">ChatGPT-plan usage</a></p>
 <aside id="thread-panel" hidden aria-label="Saved threads"></aside>
