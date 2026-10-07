@@ -4,6 +4,7 @@
 <header><span>Homebase</span><nav aria-label="Chat controls"><button id="new">New thread</button><button id="threads" aria-expanded="false" aria-controls="thread-panel">Threads</button><button id="memory" aria-expanded="false" aria-controls="memory-panel">Memory</button><button id="signout">Sign out</button></nav></header>
 <p id="connection" class="quiet">Open your private device-pairing link to connect.</p>
 <p class="quiet">GPT-5.6 Sol · high · standard · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">ChatGPT-plan usage</a></p>
+<p id="github-connection" class="quiet" hidden></p>
 <aside id="thread-panel" hidden aria-label="Saved threads"></aside>
 <aside id="memory-panel" hidden aria-label="Canonical memory"><p>Only explicit memories are shared. Thread notes stay in this thread.</p><p class="quiet">Commands: /remember shared Title | fact<br>/remember thread Title | fact<br>/correct ID REVISION | fact<br>/forget ID REVISION</p><div id="records"></div><form id="memory-form"><label>Title <input id="memory-title" maxlength="80" required></label><label>Scope <select id="memory-scope"><option value="shared">Shared</option><option value="thread">This thread</option></select></label><label>Fact <textarea id="memory-text" maxlength="1500" required></textarea></label><button>Remember</button></form></aside>
 <section id="messages" aria-label="Conversation"></section>

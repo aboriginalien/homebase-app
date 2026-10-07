@@ -20,13 +20,15 @@ from urllib.parse import urlsplit, parse_qs
 import requests
 import homebase_probe as provider
 from memory_store import State
+from github_bridge import Bridge
+import agent_turn
 
 MODEL='gpt-5.6-sol'
 STATIC=Path(__file__).resolve().parent / 'static'
 MAX_BODY=16384
 
 class App:
-    def __init__(self, store, account, origin, http_factory=provider.HTTP, recover=False):
+    def __init__(self, store, account, origin, http_factory=provider.HTTP, recover=False, bridge=None, state=None):
         u=urlsplit(origin)
         if (u.scheme not in ('http','https') or not u.hostname or u.path not in ('','/')
             or u.query or u.fragment or u.username or u.password
@@ -44,7 +46,8 @@ class App:
             provider.require_local_owner(a)
             provider.handoff_record(a,key,a.get('client_id'))
             if key!=account:raise provider.ProbeError('Select an explicit saved registration label.')
-        self.state=State(store.directory,account,recover=recover)
+        self.state=state if state is not None else State(store.directory,account,recover=recover)
+        self.bridge=bridge if bridge is not None else Bridge(store.directory/'github/config.json')
         self.jobs={};self.guard=threading.Lock()
 
     def status(self):
@@ -67,7 +70,7 @@ class App:
                 raise provider.ProbeError('A reply is still stopping or working. Wait before sending.')
             identity,started=self.state.begin(thread,request,text)
             if started:
-                stop=threading.Event();job={'stop':stop,'response':None,'thread':thread}
+                stop=threading.Event();job={'stop':stop,'response':None,'thread':thread,'request':request,'text':''}
                 self.jobs[identity]=job
                 threading.Thread(target=self.work,args=(identity,thread,text,job),daemon=True).start()
             return {'message':identity,'started':started}
@@ -114,47 +117,16 @@ class App:
                 self.state.finish(identity,command);return
             context=self.state.context(thread,query)
             self.state.references(identity,context['references'])
-            http=self.http_factory()
-            # Same lock held across refresh + inference as the reviewed CLI. One refresh owner.
-            with self.store.locked():
-                data=self.store.load();key,a=provider.select_account(data,self.account)
-                provider.require_local_owner(a)
-                a=provider.renew(http,provider.discovery(http),self.store,data,key)
-                headers={'Authorization':'Bearer '+a['access_token']}
-                model=provider.choose_model(http.json('GET',provider.RESOURCE+'/models',headers=headers),MODEL)
-                payload={'model':model,'input':context['input'],'instructions':context['instructions'],
-                         'store':False,'stream':True,'reasoning':{'effort':'high'},'service_tier':'default'}
-                if job['stop'].is_set():return
-                with http.request('POST',provider.RESOURCE+'/responses',headers=headers,json=payload,stream=True) as response:
-                    job['response']=response
-                    for e in provider.sse_events(response.iter_lines(chunk_size=1)):
-                        if job['stop'].is_set():return
-                        kind=e.get('type')
-                        if kind=='response.output_text.delta':
-                            delta=e.get('delta')
-                            if not isinstance(delta,str) or len(output)+len(delta)>32000:
-                                raise provider.ProbeError('Reply exceeded the text limit; incomplete.')
-                            output+=delta
-                            if not self.state.update(identity,output):return
-                        elif kind in ('response.failed','response.incomplete','error'):
-                            raise provider.ProbeError('Provider reply failed or is incomplete. Check ChatGPT usage and authorization.')
-                        elif kind=='response.completed':
-                            r=e.get('response',{})
-                            if (r.get('status')!='completed' or r.get('model')!=model
-                                or r.get('reasoning',{}).get('effort')!='high' or r.get('service_tier')!='default'):
-                                raise provider.ProbeError('Returned model/high/standard settings were not verified; reply is incomplete.')
-                            if not output.strip():raise provider.ProbeError('Completed response had no supported text.')
-                            self.state.finish(identity,output);return
-                    raise provider.ProbeError('Stream ended without response.completed; reply is incomplete.')
+            agent_turn.run(self,identity,thread,query,job,context)
         except provider.ProbeError as e:
             message=str(e)
             if 'HTTP 429' in message:message='ChatGPT-plan quota/rate limit reached. Check usage settings; your messages are saved.'
             elif 'HTTP 401' in message or 'HTTP 403' in message:message='ChatGPT authorization expired, revoked or unavailable. Messages are saved; reconnect through the operator helper.'
-            self.state.finish(identity,output,'incomplete',message)
+            self.state.finish(identity,job.get('text',output),'incomplete',message)
         except (requests.RequestException,OSError,ValueError,TypeError,KeyError):
-            self.state.finish(identity,output,'incomplete','Connection or storage failed; reply is incomplete. Your submitted message is saved.')
+            self.state.finish(identity,job.get('text',output),'incomplete','Connection or storage failed; reply is incomplete. Your submitted message is saved.')
         except Exception:
-            self.state.finish(identity,output,'incomplete','Reply could not complete; preserve private state before retry.')
+            self.state.finish(identity,job.get('text',output),'incomplete','Reply could not complete; preserve private state before retry.')
         finally:
             with self.guard:self.jobs.pop(identity,None)
 
@@ -226,6 +198,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{'account':self.app.account,'model':MODEL,'reasoning':'high',
                     'speed':'standard','usage_url':provider.USAGE_URL,'csrf':csrf})
             if u.path=='/api/threads':return self.reply(200,self.app.state.threads())
+            if u.path=='/api/github/status':return self.reply(200,self.app.bridge.status())
             args=parse_qs(u.query)
             thread=args.get('id',[''])[0]
             if u.path=='/api/thread':return self.reply(200,self.app.state.thread(thread))

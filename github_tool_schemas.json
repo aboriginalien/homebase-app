@@ -1,0 +1,328 @@
+{
+  "create_branch": {
+    "type": "object",
+    "properties": {
+      "branch": {
+        "type": "string",
+        "description": "Name for new branch"
+      },
+      "from_branch": {
+        "type": "string",
+        "description": "Source branch (defaults to repo default)"
+      },
+      "owner": {
+        "type": "string",
+        "description": "Repository owner",
+        "x-mcp-header": "owner"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository name",
+        "x-mcp-header": "repo"
+      }
+    },
+    "required": [
+      "owner",
+      "repo",
+      "branch"
+    ]
+  },
+  "create_or_update_file": {
+    "type": "object",
+    "properties": {
+      "allow_symlink_write": {
+        "type": "boolean",
+        "description": "Set true to update a symbolic link itself; content must be its new target path.",
+        "default": false
+      },
+      "branch": {
+        "type": "string",
+        "description": "Branch to create/update the file in"
+      },
+      "content": {
+        "type": "string",
+        "description": "Content of the file, exactly as it should appear once written. Do not base64-encode it; this server does that before calling the REST API."
+      },
+      "message": {
+        "type": "string",
+        "description": "Commit message"
+      },
+      "owner": {
+        "type": "string",
+        "description": "Repository owner (username or organization)",
+        "x-mcp-header": "owner"
+      },
+      "path": {
+        "type": "string",
+        "description": "Path where to create/update the file"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository name",
+        "x-mcp-header": "repo"
+      },
+      "sha": {
+        "type": "string",
+        "description": "The blob SHA of the file being replaced. Required if the file already exists. Retrieve it with get_file_contents using the same owner, repo, and path, with ref set to this tool's branch value."
+      }
+    },
+    "required": [
+      "owner",
+      "repo",
+      "path",
+      "content",
+      "message",
+      "branch"
+    ]
+  },
+  "create_pull_request": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Branch to merge into"
+      },
+      "body": {
+        "type": "string",
+        "description": "PR description"
+      },
+      "draft": {
+        "type": "boolean",
+        "description": "Create as draft PR"
+      },
+      "head": {
+        "type": "string",
+        "description": "Branch containing changes"
+      },
+      "maintainer_can_modify": {
+        "type": "boolean",
+        "description": "Allow maintainer edits"
+      },
+      "owner": {
+        "type": "string",
+        "description": "Repository owner",
+        "x-mcp-header": "owner"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository name",
+        "x-mcp-header": "repo"
+      },
+      "reviewers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "GitHub usernames or ORG/team-slug team reviewers to request reviews from"
+      },
+      "title": {
+        "type": "string",
+        "description": "PR title"
+      }
+    },
+    "required": [
+      "owner",
+      "repo",
+      "title",
+      "head",
+      "base"
+    ]
+  },
+  "get_file_contents": {
+    "type": "object",
+    "properties": {
+      "fields": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "type",
+            "name",
+            "path",
+            "size",
+            "sha",
+            "url",
+            "git_url",
+            "html_url",
+            "download_url"
+          ]
+        },
+        "description": "Subset of fields to return for each entry when the path is a directory. If omitted, all fields are returned. Ignored when the path is a single file. Use this to reduce response size when listing directories and you only need specific fields, e.g. just 'name' and 'type'."
+      },
+      "owner": {
+        "type": "string",
+        "description": "Repository owner (username or organization)",
+        "x-mcp-header": "owner"
+      },
+      "path": {
+        "type": "string",
+        "description": "Path to file/directory",
+        "default": "/"
+      },
+      "ref": {
+        "type": "string",
+        "description": "Accepts optional git refs such as `refs/tags/{tag}`, `refs/heads/{branch}` or `refs/pull/{pr_number}/head`"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository name",
+        "x-mcp-header": "repo"
+      },
+      "sha": {
+        "type": "string",
+        "description": "Accepts optional commit SHA. If specified, it will be used instead of ref"
+      }
+    },
+    "required": [
+      "owner",
+      "repo"
+    ]
+  },
+  "push_files": {
+    "type": "object",
+    "properties": {
+      "branch": {
+        "type": "string",
+        "description": "Branch to push to"
+      },
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "file content"
+            },
+            "path": {
+              "type": "string",
+              "description": "path to the file"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Array of file objects to push, each object with path (string) and content (string)"
+      },
+      "message": {
+        "type": "string",
+        "description": "Commit message"
+      },
+      "owner": {
+        "type": "string",
+        "description": "Repository owner",
+        "x-mcp-header": "owner"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository name",
+        "x-mcp-header": "repo"
+      }
+    },
+    "required": [
+      "owner",
+      "repo",
+      "branch",
+      "files",
+      "message"
+    ]
+  },
+  "search_code": {
+    "type": "object",
+    "properties": {
+      "fields": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "name",
+            "path",
+            "sha",
+            "repository",
+            "text_matches"
+          ]
+        },
+        "description": "Subset of fields to return for each code search result. If omitted, all fields are returned. Use this to reduce response size when you only need specific fields; omitting 'repository' and 'text_matches' in particular drops the largest per-result data."
+      },
+      "order": {
+        "type": "string",
+        "description": "Sort order for results",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "page": {
+        "type": "number",
+        "description": "Page number for pagination (min 1)",
+        "minimum": 1
+      },
+      "perPage": {
+        "type": "number",
+        "description": "Results per page for pagination (min 1, max 100)",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "query": {
+        "type": "string",
+        "description": "Search query (GitHub code search REST). Implicit AND between terms; supports `OR`, `NOT`, and `\"quoted phrase\"` for exact match. Qualifiers: `repo:owner/repo`, `org:`, `user:`, `language:`, `path:dir` (prefix match), `filename:exact.ext`, `extension:`, `in:file`, `in:path`, `size:`, `is:archived`, `is:fork`. Max 256 chars. Examples: `WithContext language:go org:github`; `\"package main\" repo:o/r`; `func extension:go path:cmd repo:o/r`; `NOT TODO language:go repo:o/r`."
+      },
+      "sort": {
+        "type": "string",
+        "description": "Sort field ('indexed' only)"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  "search_repositories": {
+    "type": "object",
+    "properties": {
+      "minimal_output": {
+        "type": "boolean",
+        "description": "Return minimal repository information (default: true). When false, modern clients receive additional curated repository details, not the complete GitHub API object. Legacy clients retain full GitHub API repository objects.",
+        "default": true
+      },
+      "order": {
+        "type": "string",
+        "description": "Sort order",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "page": {
+        "type": "number",
+        "description": "Page number for pagination (min 1)",
+        "minimum": 1
+      },
+      "perPage": {
+        "type": "number",
+        "description": "Results per page for pagination (min 1, max 100)",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "query": {
+        "type": "string",
+        "description": "Repository search query. Examples: 'machine learning in:name stars:>1000 language:python', 'topic:react', 'user:facebook'. Supports advanced search syntax for precise filtering."
+      },
+      "sort": {
+        "type": "string",
+        "description": "Sort repositories by field, defaults to best match",
+        "enum": [
+          "stars",
+          "forks",
+          "help-wanted-issues",
+          "updated"
+        ]
+      }
+    },
+    "required": [
+      "query"
+    ]
+  }
+}

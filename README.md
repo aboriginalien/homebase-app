@@ -334,3 +334,44 @@ In Threads, Delete asks for confirmation naming the conversation. Confirming rem
 Deletion removes application database records; this is not a guarantee of forensic erasure from storage or operator backups. No provider conversation is stored (store:false).
 
 Developer regression checks: run `python -m unittest discover -s tests -p 'test_*.py' -v`. The new browser fixture uses Node plus Playwright 1.51.1 and its Chromium headless shell: `PLAYWRIGHT_MODULE=/path/to/playwright node tests/thread_controls_browser.cjs /path/to/app/python /path/to/output`. It starts an isolated loopback server with synthetic registration/provider data. CSP bypass applies only to browser-test predicate instrumentation; application CSP is unchanged.
+# GitHub bridge (HB-011)
+
+The optional private connection uses the official GitHub MCP server v2.0.0
+(source `cb290407e20d9cc4a7c338179f4a30287f4e5040`) through the official Python
+MCP SDK. The executable SHA-256 is
+`2d563dfdafa4b9de831835051958a59c8cede22473d93aacc114e3daa715e0da`.
+Dependencies are locked in `requirements.txt` for CPython 3.12 Linux x86_64;
+install with `--require-hashes --only-binary=:all:`. This adds no inference API
+key and preserves GPT-5.6 Sol/high/standard through the saved ChatGPT grant.
+
+Runtime configuration lives in the private state directory at
+`github/config.json` (owner-only directory 0700, files 0600). It contains
+version 1, enabled boolean, owner `aboriginalien`, App ID 5223310,
+installation ID, absolute `key_path`, and absolute `binary`. The executable
+has owner-only 0700 permissions. The App PEM belongs only in protected runtime
+storage and encrypted deployment secrets; never commit it or copy it into chat.
+Setting enabled=false disables tools while preserving ordinary text chat.
+
+The seven tools support repository/code search, file/directory reads, task
+branches, one-file/multi-file commits, and unmerged pull requests. Broad App
+permissions do not expose arbitrary administration, workflows, secrets,
+merges, deployments, issue messaging, or raw API calls. Writes require current
+owner input and fresh reads; code/multiple files use a newly created task
+branch. Single-file canonical Homebase docs and AGENTS may use main. Task
+branches use `homebase/<task>-<request-prefix>`.
+
+Each turn is limited to six model rounds, twelve tool calls, 180 seconds,
+20-second MCP calls, and bounded input/results. Grant locks end before GitHub
+work. Completed provider output and encrypted reasoning are preserved in
+private continuation only until the turn ends. Activity records verified Git
+hashes/links without tool arguments or credentials. Stop prevents future
+dispatch; an accepted write is checked if time remains. Unknown writes remain
+blocked until fixed read-only verification proves their effects; they are
+never automatically repeated. Thread deletion removes its activity records,
+not remote commits. Search results are filtered by authenticated installation
+inventory, but GitHub indexing/permissions may limit code search.
+
+`push_files` has no expected-head CAS parameter. Restriction to this turn's
+fresh task branch and pre/post checks mitigate races; they do not provide the
+Work connector's atomic guarded-ref publication guarantee. The existing
+protected deployment lane remains separate from tools exposed to the agent.

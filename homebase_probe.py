@@ -130,7 +130,7 @@ class HTTP:
 
     def request(self, method, url, **kwargs):
         try:
-            r = self.session.request(method, url, timeout=(10, 60),
+            r = self.session.request(method, url, timeout=kwargs.pop('timeout',(10,60)),
                                      allow_redirects=False, **kwargs)
         except requests.RequestException:
             raise ProbeError("Network/TLS request failed; no success was confirmed.") from None

@@ -37,6 +37,27 @@ async function api(path,body){
 function panel(name,visible){$(name+'-panel').hidden=!visible;$(name==='thread'?'threads':'memory').setAttribute('aria-expanded',String(visible));}
 function clearPrivate(){ $('messages').replaceChildren();$('records').replaceChildren();$('thread-panel').replaceChildren();panel('memory',false);panel('thread',false);$('draft').value='';$('connection').textContent='Disconnected';renderedSignature=''; }
 function status(text){$('status').textContent=text;}
+async function githubStatus(){
+ try{const value=await api('/api/github/status');const label=$('github-connection');
+  label.hidden=value.state==='off';
+  label.textContent=value.state==='ready'?'GitHub connected · '+value.repository_count+' repositories':value.state==='configured'?'GitHub configured · connects when needed':'GitHub unavailable · chat is still available';
+ }catch{/* GitHub readiness must never block the conversation. */}
+}
+function activity(message,opened){
+ if(!message.activity?.length)return null;
+ const box=document.createElement('details');box.className='activity';box.dataset.message=message.id;box.open=opened.has(String(message.id));
+ const label=document.createElement('summary');label.textContent='Activity · '+message.activity.length+' GitHub '+(message.activity.length===1?'operation':'operations');box.append(label);
+ const list=document.createElement('ol');
+ for(const action of message.activity){const row=document.createElement('li');const target=action.target||{};
+  const names={get_file_contents:'Read',search_repositories:'Find repositories',search_code:'Search code',create_branch:'Create branch',create_or_update_file:'Save file',push_files:'Save files',create_pull_request:'Prepare pull request'};
+  const states={succeeded:'verified',dispatched:'in progress',prepared:'queued',uncertain:'outcome unknown',cancelled:'cancelled',failed:'failed',interrupted:'interrupted'};
+  row.textContent=(names[action.name]||'GitHub operation')+' · '+target.repo+(target.path?' / '+target.path:target.branch?' / '+target.branch:'')+' · '+(states[action.status]||action.status);
+  if(action.evidence?.url){try{const url=new URL(action.evidence.url);const prefix='/'+target.owner+'/'+target.repo+'/';
+   if(url.protocol==='https:'&&url.host==='github.com'&&url.pathname.startsWith(prefix)&&!url.search&&!url.hash){const link=document.createElement('a');link.href=url.href;link.textContent='View';link.target='_blank';link.rel='noopener noreferrer';row.append(' · ',link);}
+  }catch{}}
+  list.append(row);
+ }box.append(list);return box;
+}
 function controls(){
  $('draft').disabled=!authenticated||!thread||navigating||deleting;$('send').disabled=!authenticated||!thread||navigating||deleting||working||sending||!$('draft').value.trim();
  $('stop').hidden=!working;$('new').disabled=!authenticated||sending||navigating||deleting;
@@ -47,11 +68,11 @@ function render(data){
  const nearBottom=window.innerHeight+window.scrollY>=document.body.scrollHeight-120;
  const signature=JSON.stringify([data.id,data.messages]);
  if(signature!==renderedSignature){renderedSignature=signature;
- const messages=$('messages');messages.replaceChildren();
+ const messages=$('messages');const opened=new Set([...messages.querySelectorAll('details[open]')].map(x=>x.dataset.message));messages.replaceChildren();
  for(const m of data.messages){const block=document.createElement('article');block.className='message '+(m.role==='user'?'user-message':'assistant-message');block.dataset.status=m.status;
  const who=messageTime(m);
  const body=document.createElement('div');body.className='body';messageBody(body,m);
- block.append(who,body);if(m.role==='assistant'&&m.status!=='completed'){const info=document.createElement('div');info.className='state';info.textContent=m.status==='working'?'Working…':m.error||m.status;block.append(info);}messages.append(block);}}
+ block.append(who,body);if(m.role==='assistant'&&m.status!=='completed'){const info=document.createElement('div');info.className='state';const phases={reading:'Reading GitHub…',writing:'Saving to GitHub…',verifying:'Checking GitHub result…',validating:'Checking request…'};info.textContent=m.status==='working'?(phases[m.phase]||'Working…'):m.error||m.status;block.append(info);}const actions=activity(m,opened);if(actions)block.append(actions);messages.append(block);}}
  working=data.messages.some(m=>m.status==='working');
  const active=data.messages.find(m=>m.status==='working');activeRequest=active?active.request:'';
  if(!dirtyDraft&&!sending)$('draft').value=data.draft||'';
@@ -125,7 +146,8 @@ async function boot(){
   if(location.hash.startsWith('#pair=')){const capability=location.hash.slice(6);history.replaceState(null,'',location.pathname);await api('/api/pair',{capability});}
   const s=await api('/api/status');csrf=s.csrf;authenticated=true;$('connection').textContent='Connected · '+s.account+' · using your ChatGPT plan';
   const rows=await api('/api/threads');if(rows.length)await openThread(rows[0].id);else await newThread();
-  controls();poll=setInterval(refresh,700);await list();
+  controls();poll=setInterval(refresh,700);await list();await githubStatus();
+  setInterval(()=>{if(authenticated)githubStatus();},15000);
  }catch(e){status(e.message);controls();}
 }
 window.addEventListener('pagehide',()=>{if(authenticated&&thread&&dirtyDraft){fetch('/api/draft',{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({thread,text:$('draft').value})}).catch(()=>{});}});

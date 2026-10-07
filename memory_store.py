@@ -120,6 +120,8 @@ class State:
             messages = [dict(r) for r in db.execute(
                 'SELECT id,request,role,text,status,error,created,completed FROM messages WHERE thread=? ORDER BY id',(identity,))]
             for message in messages:
+                phase=db.execute('SELECT phase FROM tool_turns WHERE assistant_message_id=?',(message['id'],)).fetchone()
+                if phase:message['phase']=phase['phase']
                 activity = Journal.activity_rows(db, message['id'])
                 if activity:
                     message['activity'] = activity
