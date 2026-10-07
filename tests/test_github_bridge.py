@@ -10,7 +10,7 @@ import unittest
 import uuid
 from urllib.parse import parse_qs, unquote, urlsplit
 from unittest.mock import patch
-from github_bridge import Bridge, BridgeError, Context, Reads, safe_path, write_scope
+from github_bridge import Bridge, BridgeError, Context, MODEL_SCHEMAS, Reads, SCHEMAS, safe_path, write_scope
 from memory_store import State
 from tool_journal import Journal
 
@@ -110,6 +110,19 @@ class BridgeTests(unittest.TestCase):
             result=self.call('get_file_contents',{'owner':'aboriginalien','repo':'homebase','path':'docs/note.md','ref':'main',**changes})
             self.assertIn('error',result)
         self.assertFalse(self.transport.calls)
+    def test_model_pr_schema_is_narrower_but_official_transport_schema_is_unchanged(self):
+        official=SCHEMAS['create_pull_request']['properties']
+        model=MODEL_SCHEMAS['create_pull_request']['properties']
+        self.assertNotIn('enum',official['maintainer_can_modify'])
+        self.assertEqual(model['maintainer_can_modify']['enum'],[False])
+        self.assertEqual(model['draft']['enum'],[True])
+        self.assertEqual(model['reviewers']['maxItems'],0)
+        self.assertIn('pattern',model['head'])
+    def test_pr_policy_still_rejects_maintainer_edits_before_dispatch(self):
+        branch=self.branch();count=len(self.transport.calls)
+        result=self.call('create_pull_request',{'owner':'aboriginalien','repo':'homebase','head':branch,'base':'main',
+            'title':'Synthetic draft','body':'No owner data.','draft':True,'maintainer_can_modify':True})
+        self.assertEqual(result['error'],'forbidden');self.assertEqual(len(self.transport.calls),count)
     def test_symlink_file_or_parent_is_never_read_or_written(self):
         for path in ('docs','docs/note.md'):
             self.rest.modes={path:'120000'};self.ctx.trees={};self.ctx.failed.clear()

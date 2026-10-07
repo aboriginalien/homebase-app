@@ -36,6 +36,7 @@ def run(app, identity, thread, query, job, context):
             'Only this turn\'s created branches are writable, except single-file canonical docs or AGENTS.md in homebase/main. '
             'Existing file updates require the read blob sha. create_or_update_file content is plain UTF-8, not base64. '
             'Never merge a PR, change workflow/credential files, or request reviewers. '
+            'For create_pull_request use the bare branch name, draft true, maintainer_can_modify false, and no reviewers. '
             'Use small reads, at most 12 calls and 6 model rounds. Prefer concise plain final prose. '
             'When an error occurs, explain it without pretending success or repeating an identical failed call.')
     else:
