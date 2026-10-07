@@ -204,7 +204,8 @@ class Bridge:
         return c
     def start(self):
         c=self.configured()
-        if c is None:self.last_status={'state':'off','repository_count':0,'tools':[]};return False
+        if c is None:
+            self.close();self.last_status={'state':'off','repository_count':0,'tools':[]};return False
         if self.transport and not self.transport.failed and c==self.config:return True
         self.close()
         self.config=c;self.rest=self.reads_factory(c)
@@ -230,7 +231,8 @@ class Bridge:
         except Exception:return {'state':'unavailable','repository_count':0,'tools':[]}
     def definitions(self):
         try:
-            if not self.start():return []
+            with self.guard:
+                if not self.start():return []
         except Exception:self.close();self.last_status={'state':'unavailable','repository_count':0,'tools':[]};return []
         descriptions={
           'get_file_contents':'Read an installed owner repository file/directory at an explicit branch; read before editing. Missing files return exists=false.',
