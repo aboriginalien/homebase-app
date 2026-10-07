@@ -151,6 +151,11 @@ class BridgeTests(unittest.TestCase):
         for query in ('homebase OR repo:outside/other','user:outside','-user:aboriginalien','repo:aboriginalien/uninstalled'):
             self.assertEqual(self.call('search_code',{'query':query})['error'],'forbidden')
         self.assertFalse(self.transport.calls)
+    def test_official_code_search_repository_string_is_checked_and_retained(self):
+        self.transport.call=lambda name,args:{'structuredContent':{'items':[{'name':'note.md','path':'docs/note.md','sha':blob('original'),'repository':'aboriginalien/homebase'},
+                                                                          {'name':'outside','repository':'outside/other'}]}}
+        value=self.call('search_code',{'query':'note'})
+        self.assertEqual(len(value['items']),1);self.assertEqual(value['items'][0]['repository'],'aboriginalien/homebase')
     def test_expired_turn_or_stop_dispatches_no_operation(self):
         self.ctx.deadline=time.monotonic()-1;self.assertEqual(self.read()['error'],'timeout')
         self.ctx.deadline=time.monotonic()+180;self.ctx.stop.set();self.ctx.failed.clear()

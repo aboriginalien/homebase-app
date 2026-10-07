@@ -410,10 +410,20 @@ class Bridge:
                     try:value=json.loads('\n'.join(blocks))
                     except ValueError:raise BridgeError('unavailable') from None
                 need(isinstance(value,dict),'unavailable');items=value.get('items',[]);kept=[]
+                need(isinstance(items,list) and len(items)<=20,'budget_exceeded')
                 for item in items:
-                    repo_info=item.get('repository',item);full=repo_info.get('full_name','');namepart=full.removeprefix('aboriginalien/')
+                    need(isinstance(item,dict),'unavailable')
+                    repo_info=item.get('repository',item)
+                    if isinstance(repo_info,str):
+                        full=repo_info;namepart=full.removeprefix('aboriginalien/')
+                        if full!='aboriginalien/'+namepart or namepart not in self.inventory:continue
+                        repo_info=self.rest.get(self.prefix(namepart),ctx)
+                        need(repo_info and repo_info.get('owner',{}).get('login')=='aboriginalien','forbidden')
+                        repo_info={**repo_info,'full_name':full}
+                    need(isinstance(repo_info,dict),'unavailable')
+                    full=repo_info.get('full_name','');namepart=full.removeprefix('aboriginalien/')
                     if full=='aboriginalien/'+namepart and self.inventory.get(namepart)==repo_info.get('id'):
-                        kept.append({k:v for k,v in item.items() if k in ('name','path','sha','full_name','description','private')})
+                        kept.append({k:v for k,v in item.items() if k in ('name','path','sha','repository','full_name','description','private')})
                 result={'items':kept,'incomplete_results':value.get('incomplete_results',False),'scope':'installed owner repositories','search_index_not_inventory':True};evidence={}
             else:
                 # Ignore potentially credential-bearing download URLs/resource envelopes.
