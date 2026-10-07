@@ -186,6 +186,7 @@ class BridgeTests(unittest.TestCase):
     def test_owner_write_scope_does_not_come_from_question_or_other_repository(self):
         self.assertFalse(write_scope('How do I edit other?','other'));self.assertFalse(write_scope('Write a homebase note','other'))
         self.assertTrue(write_scope('Please update other docs','other'))
+        self.assertTrue(write_scope('Create a task branch and PR in aboriginalien/homebase with no reviewers to create.','homebase'))
     def test_explicit_repo_file_and_main_denial_constrain_accepted_writes(self):
         query='Create a task branch in aboriginalien/homebase and write docs/tests/check.md. Do not modify main or any other file.'
         self.assertTrue(write_scope(query,'homebase','homebase/task-123','docs/tests/check.md'))

@@ -69,7 +69,9 @@ def secret_free(value):
 def write_scope(query, repo, branch=None, path=None):
     """Conservative owner-input scope; repository/tool output cannot grant it."""
     verbs = r'(?:write|edit|modify|update|save|record|create|commit|push|change|add|prepare|open)'
-    for denial in re.finditer(r"(?:do not|don't|never|without|no)\s+(?:\w+\s+){0,2}"+verbs+r'\b([^.;\n]*)',query,re.I):
+    denial_pattern=r"(?:do not|don't|never|without)\s+(?:\w+\s+){0,2}"+verbs+r'\b([^.;\n]*)'
+    noun_denial=r"\bno\s+(?:direct\s+)?(?:writes?|writing|edits?|editing|changes?|commits?|push(?:es|ing)?|updates?)\b([^.;\n]*)"
+    for denial in list(re.finditer(denial_pattern,query,re.I))+list(re.finditer(noun_denial,query,re.I)):
         tail=denial.group(1).strip()
         if re.match(r'(?:the\s+)?main\b',tail,re.I):
             if branch=='main':return False
