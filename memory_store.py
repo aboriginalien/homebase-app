@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from contextlib import contextmanager
 from homebase_probe import ProbeError, check_private
+from tool_journal import Journal
 
 MAX_FACT = 1500
 MAX_RECORDS = 128
@@ -39,6 +40,10 @@ class State:
             CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,expires REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS pairings(hash TEXT PRIMARY KEY,expires REAL NOT NULL);
             ''')
+            # executescript closes SQLite's transaction. All additive migration
+            # and interrupted-operation recovery below share one transaction.
+            db.execute('BEGIN IMMEDIATE')
+            Journal.migrate(db, recover=recover)
             if 'memory_refs' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
                 db.execute("ALTER TABLE messages ADD COLUMN memory_refs TEXT NOT NULL DEFAULT '{}'")
             if 'completed' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
@@ -112,8 +117,13 @@ class State:
         with self.connect() as db:
             row = db.execute('SELECT * FROM threads WHERE id=?',(identity,)).fetchone()
             if not row: raise ProbeError('Thread does not exist.')
-            return {**dict(row),'messages':[dict(r) for r in db.execute(
-                'SELECT id,request,role,text,status,error,created,completed FROM messages WHERE thread=? ORDER BY id',(identity,))]}
+            messages = [dict(r) for r in db.execute(
+                'SELECT id,request,role,text,status,error,created,completed FROM messages WHERE thread=? ORDER BY id',(identity,))]
+            for message in messages:
+                activity = Journal.activity_rows(db, message['id'])
+                if activity:
+                    message['activity'] = activity
+            return {**dict(row),'messages':messages}
 
     def draft(self, identity, text):
         with self.connect() as db:
@@ -127,6 +137,7 @@ class State:
             if db.execute("SELECT 1 FROM messages WHERE thread=? AND status='working'", (identity,)).fetchone():
                 raise ProbeError('Stop the reply and wait for it to finish stopping before deleting this thread.')
             db.execute("DELETE FROM memory WHERE scope='thread' AND thread=?", (identity,))
+            Journal.delete_thread(db, identity)
             db.execute('DELETE FROM messages WHERE thread=?', (identity,))
             db.execute('DELETE FROM threads WHERE id=?', (identity,))
 
@@ -169,6 +180,7 @@ class State:
 
     def stop(self, identity):
         with self.connect() as db:
+            Journal.stop(db, identity)
             db.execute("UPDATE messages SET status='stopped',error='Stopped; reply is incomplete.' WHERE thread=? AND status='working'",(identity,))
 
     def memory(self, thread=None):
