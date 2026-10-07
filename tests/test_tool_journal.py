@@ -127,7 +127,7 @@ class JournalTests(unittest.TestCase):
             self.journal.prepare(self.turn, 'large', 'create_or_update_file', self.target, {'content': 'x' * (256 * 1024)})
         for i in range(12): self.prepare(str(i), 'get_file_contents')
         with self.assertRaises(ProbeError): self.prepare('over', 'get_file_contents')
-        for _ in range(6): self.journal.next_round(self.turn)
+        for _ in range(12): self.journal.next_round(self.turn)
         with self.assertRaises(ProbeError): self.journal.next_round(self.turn)
 
     def test_terminal_clear_and_expired_dispatch(self):

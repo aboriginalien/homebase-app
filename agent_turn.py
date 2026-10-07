@@ -3,7 +3,7 @@ import json
 import time
 from github_bridge import Context, TOOLS
 from model_turn import Round, TurnError, continuation
-from tool_journal import Journal
+from tool_journal import Journal, MAX_MODEL_ROUNDS
 import homebase_probe as provider
 
 def lines(response, check):
@@ -37,13 +37,13 @@ def run(app, identity, thread, query, job, context):
             'Existing file updates require the read blob sha. create_or_update_file content is plain UTF-8, not base64. '
             'Never merge a PR, change workflow/credential files, or request reviewers. '
             'For create_pull_request use the bare branch name, draft true, maintainer_can_modify false, and no reviewers. '
-            'Use small reads, at most 12 calls and 6 model rounds. Prefer concise plain final prose. '
+            f'Use small reads, at most 12 calls and {MAX_MODEL_ROUNDS} model rounds. Prefer concise plain final prose. '
             'When an error occurs, explain it without pretending success or repeating an identical failed call.')
     else:
         instructions += '\nGitHub tools are unavailable in this turn. Do not claim to have read or changed GitHub.'
     http=app.http_factory();usage={};call_ids=set()
     try:
-        for number in range(6):
+        for number in range(MAX_MODEL_ROUNDS):
             ctx.check();journal.next_round(turn);journal.phase(turn,'model',continuation=history)
             def streamed(text):
                 job['text']=text;app.state.update(identity,text)
@@ -71,7 +71,7 @@ def run(app, identity, thread, query, job, context):
             if not calls:
                 journal.phase(turn,'completed',summary=json.dumps({'rounds':number+1,'usage':usage}))
                 app.state.finish(identity,text);return
-            if not tools or number==5:raise TurnError('Reply reached its tool or round limit. Verified changes remain in Activity.')
+            if not tools or number==MAX_MODEL_ROUNDS-1:raise TurnError('Reply reached its model-round limit. Verified changes remain in Activity.')
             results=[]
             for call,arguments in calls:
                 ctx.check()

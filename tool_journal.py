@@ -13,6 +13,7 @@ from homebase_probe import ProbeError
 
 READS = {'search_repositories', 'search_code', 'get_file_contents'}
 WRITES = {'create_branch', 'create_or_update_file', 'push_files', 'create_pull_request'}
+MAX_MODEL_ROUNDS = 12
 PHASES = {'model', 'validating', 'reading', 'writing', 'verifying',
           'completed', 'incomplete', 'stopped', 'interrupted'}
 TERMINAL = {'completed', 'incomplete', 'stopped', 'interrupted'}
@@ -139,7 +140,7 @@ class Journal:
     def next_round(self, turn_id):
         with self.state.connect() as db:
             row = self._active(db, turn_id)
-            if row['rounds'] >= 6:
+            if row['rounds'] >= MAX_MODEL_ROUNDS:
                 raise ProbeError('GitHub reply reached its model-round limit.')
             db.execute('UPDATE tool_turns SET rounds=rounds+1,updated=? WHERE turn_id=?', (time.time(), turn_id))
 

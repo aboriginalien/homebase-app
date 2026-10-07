@@ -77,9 +77,18 @@ class AgentTests(unittest.TestCase):
         ToolHTTP.program=[[call()],[call()],[final()]]
         self.assertEqual(self.send()['status'],'incomplete');self.assertEqual(len(self.bridge.calls),1)
     def test_model_round_limit_preserves_prior_verified_operations(self):
-        ToolHTTP.program=[[call(identity='call-'+str(i))] for i in range(6)]
-        row=self.send();self.assertEqual(row['status'],'incomplete');self.assertEqual(len(ToolHTTP.calls),6)
-        self.assertEqual(len(self.bridge.calls),5);self.assertEqual(len(row['activity']),5)
+        ToolHTTP.program=[[call(identity='call-'+str(i))] for i in range(12)]
+        row=self.send();self.assertEqual(row['status'],'incomplete');self.assertEqual(len(ToolHTTP.calls),12)
+        self.assertEqual(len(self.bridge.calls),11);self.assertEqual(len(row['activity']),11)
+    def test_seven_serial_tools_can_complete_with_a_final_summary(self):
+        ToolHTTP.program=[[call(identity='step-'+str(i))] for i in range(7)]+[[final()]]
+        row=self.send();self.assertEqual(row['status'],'completed');self.assertEqual(len(ToolHTTP.calls),8)
+        self.assertEqual(len(self.bridge.calls),7);self.assertEqual(len(row['activity']),7)
+        self.assertEqual(row['text'],'Verified synthetic result.')
+        with self.app.state.connect() as db:
+            turn=dict(db.execute('SELECT * FROM tool_turns WHERE assistant_message_id=?',(row['id'],)).fetchone())
+        self.assertEqual(turn['rounds'],8);self.assertEqual(turn['continuation'],'')
+        self.assertEqual(self.app.state.thread(self.thread)['draft'],'')
     def test_oauth_lock_is_released_before_github_call(self):
         original=self.store.locked;depth=[0]
         import contextlib
