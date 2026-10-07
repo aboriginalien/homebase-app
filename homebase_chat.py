@@ -215,7 +215,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.allowed();u=urlsplit(self.path)
-            public={'/':('index.html','text/html'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css')}
+            public={'/':('index.html','text/html'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css'),
+                    '/markdown-it.min.js':('markdown-it.min.js','text/javascript')}
             if u.path in public:
                 name,kind=public[u.path];return self.reply(200,(STATIC/name).read_bytes(),kind)
             if u.path=='/health':return self.reply(200,{'status':'ok','inference':'not tested by health'})

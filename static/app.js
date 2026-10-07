@@ -1,5 +1,32 @@
 'use strict';
 const $=id=>document.getElementById(id);
+// Local, pinned CommonMark renderer. Raw HTML and automatic media loads are disabled.
+const markdown=window.markdownit?.({html:false,linkify:false,typographer:false});
+if(markdown)markdown.renderer.rules.image=(tokens,index)=>markdown.utils.escapeHtml(tokens[index].content);
+function messageBody(body,message){
+ if(message.role!=='assistant'||!markdown){body.textContent=message.text;return;}
+ body.innerHTML=markdown.render(message.text);
+ for(const link of body.querySelectorAll('a')){
+  try{const url=new URL(link.getAttribute('href'),location.origin);
+   if(!['https:','http:','mailto:'].includes(url.protocol)){link.removeAttribute('href');continue;}
+   link.target='_blank';link.rel='noopener noreferrer';
+  }catch{link.removeAttribute('href');}
+ }
+}
+function messageTime(message){
+ const label=document.createElement('time');label.className='who';
+ const completed=message.role==='assistant'&&message.status==='completed'&&Number.isFinite(message.completed);
+ const timestamp=completed?message.completed:message.created;
+ const speaker=message.role==='user'?'You':'Homebase';
+ if(!Number.isFinite(timestamp)){label.setAttribute('aria-label',speaker+'; time unavailable');return label;}
+ const date=new Date(timestamp*1000);
+ if(!Number.isFinite(date.getTime())){label.setAttribute('aria-label',speaker+'; time unavailable');return label;}
+ const time=date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace('AM','a.m.').replace('PM','p.m.');
+ label.textContent=(date.getMonth()+1)+'-'+date.getDate()+', '+time;label.dateTime=date.toISOString();
+ const kind=message.role==='user'?'Sent':completed?'Reply completed':'Reply started';
+ label.title=kind+' '+date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'long'});
+ label.setAttribute('aria-label',speaker+' · '+label.title);return label;
+}
 let csrf='',thread='',working=false,sending=false,deleting=false,authenticated=false,poll=null,draftTimer=null,pendingId='',activeRequest='',dirtyDraft=false,draftVersion=0,pendingText='',renderedSignature='',navigation=0,navigating=false;
 async function api(path,body){
  const options={credentials:'same-origin',cache:'no-store'};
@@ -21,9 +48,9 @@ function render(data){
  const signature=JSON.stringify([data.id,data.messages]);
  if(signature!==renderedSignature){renderedSignature=signature;
  const messages=$('messages');messages.replaceChildren();
- for(const m of data.messages){const block=document.createElement('article');block.className='message';block.dataset.status=m.status;
- const who=document.createElement('div');who.className='who';who.textContent=m.role==='user'?'You':'Homebase';
- const body=document.createElement('div');body.className='body';body.textContent=m.text;
+ for(const m of data.messages){const block=document.createElement('article');block.className='message '+(m.role==='user'?'user-message':'assistant-message');block.dataset.status=m.status;
+ const who=messageTime(m);
+ const body=document.createElement('div');body.className='body';messageBody(body,m);
  block.append(who,body);if(m.role==='assistant'&&m.status!=='completed'){const info=document.createElement('div');info.className='state';info.textContent=m.status==='working'?'Working…':m.error||m.status;block.append(info);}messages.append(block);}}
  working=data.messages.some(m=>m.status==='working');
  const active=data.messages.find(m=>m.status==='working');activeRequest=active?active.request:'';

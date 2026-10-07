@@ -41,6 +41,9 @@ class State:
             ''')
             if 'memory_refs' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
                 db.execute("ALTER TABLE messages ADD COLUMN memory_refs TEXT NOT NULL DEFAULT '{}'")
+            if 'completed' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
+                # Older assistant rows record generation start, never a guessed completion.
+                db.execute('ALTER TABLE messages ADD COLUMN completed REAL')
             row = db.execute("SELECT value FROM meta WHERE key='owner'").fetchone()
             if row and row[0] != owner:
                 raise ProbeError('App data belongs to a different registration; use separate private state.')
@@ -110,7 +113,7 @@ class State:
             row = db.execute('SELECT * FROM threads WHERE id=?',(identity,)).fetchone()
             if not row: raise ProbeError('Thread does not exist.')
             return {**dict(row),'messages':[dict(r) for r in db.execute(
-                'SELECT id,request,role,text,status,error FROM messages WHERE thread=? ORDER BY id',(identity,))]}
+                'SELECT id,request,role,text,status,error,created,completed FROM messages WHERE thread=? ORDER BY id',(identity,))]}
 
     def draft(self, identity, text):
         with self.connect() as db:
@@ -153,8 +156,8 @@ class State:
     def finish(self, identity, text, status='completed', error=''):
         with self.connect() as db:
             row=db.execute('SELECT thread,request FROM messages WHERE id=?',(identity,)).fetchone()
-            changed=db.execute("UPDATE messages SET text=?,status=?,error=? WHERE id=? AND status='working'",
-                               (text,status,error,identity)).rowcount
+            changed=db.execute("UPDATE messages SET text=?,status=?,error=?,completed=? WHERE id=? AND status='working'",
+                               (text,status,error,time.time() if status=='completed' else None,identity)).rowcount
             if changed and status=='completed':
                 submitted=db.execute("SELECT text FROM messages WHERE thread=? AND request=? AND role='user'",(row['thread'],row['request'])).fetchone()[0]
                 db.execute("UPDATE threads SET draft='' WHERE id=? AND draft=?",(row['thread'],submitted))

@@ -173,9 +173,13 @@ class Routes(unittest.TestCase):
         status,raw,_=self.request('/api/thread?id='+self.thread);self.assertEqual(status,200);self.assertNotIn(b'SENTINEL',raw)
     def test_https_cookie(self):
         self.app.secure=True;self.app.cookie='__Host-homebase';self.pair();self.assertIn('__Host-homebase',self.cookie)
-    def test_ui_safe_text_source(self):
+    def test_ui_assets_and_no_browser_credential_storage(self):
         status,body,_=self.request('/app.js');self.assertEqual(status,200)
-        self.assertNotIn(b'innerHTML',body);self.assertNotIn(b'localStorage',body)
+        self.assertNotIn(b'localStorage',body)
+        # Rendering safety is exercised with HTML/URL attacks in presentation_browser.cjs.
+        status,body,_=self.request('/markdown-it.min.js');self.assertEqual(status,200)
+        self.assertEqual(self.request('/markdown-it.PROVENANCE.json')[0],401)
+        self.pair();self.assertEqual(self.request('/markdown-it.PROVENANCE.json')[0],404)
     def test_dropped_browser_request_still_persists(self):
         self.pair();status,_,_=self.request('/api/send',{'thread':self.thread,'request':str(uuid.uuid4()),'text':'durable'})
         self.assertEqual(status,202);time.sleep(.1)
