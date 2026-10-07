@@ -57,10 +57,19 @@ def secret_free(value):
     need(not re.search(r'-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:gh[pousr]_|github_pat_|sk-proj-)[A-Za-z0-9_]{20,}', value), 'forbidden')
     return value
 
-def write_scope(query, repo):
+def write_scope(query, repo, branch=None, path=None):
     """Conservative owner-input scope; repository/tool output cannot grant it."""
-    verbs = r'(?:write|edit|update|save|record|create|commit|push|change|add|prepare|open)'
-    if re.search(r"(?:do not|don't|never|without|no)\s+(?:\w+\s+){0,2}"+verbs, query, re.I): return False
+    verbs = r'(?:write|edit|modify|update|save|record|create|commit|push|change|add|prepare|open)'
+    for denial in re.finditer(r"(?:do not|don't|never|without|no)\s+(?:\w+\s+){0,2}"+verbs+r'\b([^.;\n]*)',query,re.I):
+        tail=denial.group(1).strip()
+        if re.match(r'(?:the\s+)?main\b',tail,re.I):
+            if branch=='main':return False
+        else:return False
+    if branch=='main' and re.search(r'\b(?:new|task)\s+branch\b',query,re.I):return False
+    repositories=re.findall(r'\baboriginalien/([A-Za-z0-9_.-]+)',query)
+    if repositories and repo not in repositories:return False
+    paths=re.findall(r'(?<![\w/])((?:docs|src|static|tests)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)',query)
+    if path and paths and path not in paths:return False
     if re.match(r'\s*(?:why|how|what|when|where)\b', query, re.I): return False
     if not re.search(r'\b'+verbs+r'\b', query, re.I): return False
     return repo == 'homebase' or bool(re.search(r'(?<![\w-])'+re.escape(repo)+r'(?![\w-])',query,re.I))
@@ -290,7 +299,7 @@ class Bridge:
         need(not list(Draft202012Validator(SCHEMAS[name]).iter_errors(args)))
         need(len(json.dumps(args).encode())<=128*1024,'budget_exceeded')
         ctx.check()
-        if name in WRITES:need(write_scope(ctx.query,args.get('repo','')),'authorization_required')
+        if name in WRITES:need(write_scope(ctx.query,args.get('repo',''),args.get('branch'),args.get('path')),'authorization_required')
         a=dict(args)
         if name.startswith('search_'):
             query=a['query'];need(len(query)<=256 and not re.search(r'\b(?:OR|NOT)\b|[()]|(^|\s)-',query),'forbidden')
@@ -326,6 +335,7 @@ class Bridge:
             hashes={}
             for file in files:
                 path=safe_path(file['path']);text=secret_free(file['content']);need(len(text.encode())<=96*1024,'budget_exceeded')
+                need(write_scope(ctx.query,repo,branch,path),'authorization_required')
                 if direct:need(path=='AGENTS.md' or path.startswith('docs/'),'authorization_required')
                 previous=ctx.reads.get((repo,branch,path));need(previous is not None,'conflict')
                 current=self.file(repo,path,head,ctx);need(not current.get('directory'),'invalid_arguments')
