@@ -77,7 +77,8 @@ def write_scope(query, repo, branch=None, path=None):
             if branch=='main':return False
         else:return False
     if branch=='main' and re.search(r'\b(?:new|task)\s+branch\b',query,re.I):return False
-    repositories=re.findall(r'\baboriginalien/([A-Za-z0-9_.-]+)',query)
+    # A sentence-final period belongs to the owner's prose, not the repo name.
+    repositories=[name.rstrip('.') for name in re.findall(r'\baboriginalien/([A-Za-z0-9_.-]+)',query)]
     if repositories and repo not in repositories:return False
     paths=re.findall(r'(?<![\w/])((?:docs|src|static|tests)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)',query)
     if path and paths and path not in paths:return False

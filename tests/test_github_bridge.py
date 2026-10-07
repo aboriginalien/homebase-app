@@ -195,5 +195,25 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(write_scope('Update aboriginalien/other docs','homebase','main','docs/note.md'))
     def test_explicit_read_only_modify_denial_blocks_writes(self):
         self.assertFalse(write_scope('Read homebase files. Do not modify anything.','homebase','main','docs/note.md'))
+    def test_ipad_write_prompts_accept_sentence_final_repository_period(self):
+        queries=[
+            'Test your GitHub write tools in aboriginalien/homebase. Read its repository instructions first. Create a new, uniquely named test branch from the default branch. On that branch, create only docs/testing/ipad-github-bridge-test.md containing "Homebase GitHub bridge iPad test — October 7, 2026." Read the file back to verify it, then open a draft pull request titled "iPad GitHub bridge acceptance test." Leave it unmerged and assign no reviewers. Report the verified results and links. I authorize these test changes; make no other changes.',
+            'I authorize a GitHub write test in aboriginalien/homebase. Read AGENTS.md, then create a new test branch using your required branch naming format. Create docs/testing/ipad-github-bridge-test.md containing "Homebase GitHub bridge iPad test — October 7, 2026." Read it back and verify the contents. Open an unmerged draft pull request titled "iPad GitHub bridge acceptance test," with an empty reviewer list and maintainer edits disabled. Limit the work to this test branch, file, and draft PR. Report verified results and links.'
+        ]
+        for query in queries:
+            with self.subTest(query=query):
+                self.ctx.query=query
+                branch=self.branch()
+                self.assertFalse(self.read('docs/testing/ipad-github-bridge-test.md',branch)['exists'])
+                self.assertTrue(self.write(path='docs/testing/ipad-github-bridge-test.md',branch=branch)['verified'])
+                self.assertFalse(write_scope(query,'other',branch,'docs/testing/ipad-github-bridge-test.md'))
+                self.assertFalse(write_scope(query,'homebase',branch,'AGENTS.md'))
+                self.rest.heads.pop(('homebase',branch))
+                self.ctx.branches.pop(('homebase',branch))
+    def test_sentence_period_does_not_override_denials_or_cross_repo_scope(self):
+        self.assertFalse(write_scope('Read aboriginalien/homebase. Do not write anything.','homebase'))
+        self.assertFalse(write_scope('Update aboriginalien/other.','homebase'))
+        self.assertTrue(write_scope('Update aboriginalien/other.','other'))
+        self.assertTrue(write_scope('Update aboriginalien/repo.with.dots.','repo.with.dots'))
 
 if __name__=='__main__':unittest.main()
