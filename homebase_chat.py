@@ -49,6 +49,8 @@ class App:
         self.state=state if state is not None else State(store.directory,account,recover=recover)
         self.bridge=bridge if bridge is not None else Bridge(store.directory/'github/config.json')
         self.jobs={};self.guard=threading.Lock()
+        if bridge is None and self.bridge.path.exists():
+            threading.Thread(target=self.bridge.definitions,daemon=True).start()
 
     def status(self):
         with self.store.locked():
