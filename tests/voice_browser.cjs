@@ -60,6 +60,17 @@ let browser;const checks=[],errors=[];
  await page.locator('#new').click();await held.continue();await page.waitForTimeout(200);assert.equal(sends.length,3);assert.ok(await page.evaluate(()=>sessionStorage.getItem('homebase.voice.pending.v1')));
  await context.unroute('**/api/thread?id='+originalId);await page.locator('#voice-discard').click();
  checks.push('Explicit retry rechecks durable absence and lifecycle; navigation during read-only recovery prevents the POST');
+ // Delete the original thread while an unsent final POST is held. Its delayed
+ // failure must not recreate recovery or send into the replacement thread.
+ await context.unroute('**/api/send');let heldSend;await context.route('**/api/send',r=>{heldSend=r;});
+ await capture('A deleted thread must stay deleted. Roger out');await page.getByText('Sending final request…',{exact:true}).waitFor();for(let i=0;!heldSend&&i<100;i++)await page.waitForTimeout(10);assert.ok(heldSend);
+ const deletedId=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('homebase.voice.pending.v1')).payload.thread);
+ const rowIndex=await page.evaluate(async id=>(await (await fetch('/api/threads')).json()).findIndex(r=>r.id===id),deletedId);assert.ok(rowIndex>=0);
+ await page.locator('#threads').click();page.once('dialog',d=>d.accept());await page.locator('.thread-delete').nth(rowIndex).click();await page.getByText('Thread deleted.',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>sessionStorage.getItem('homebase.voice.pending.v1')),null);await heldSend.abort('failed');await page.waitForTimeout(200);
+ assert.equal(await page.evaluate(()=>sessionStorage.getItem('homebase.voice.pending.v1')),null);assert.equal(sends.length,4);
+ assert.equal(await page.evaluate(async id=>(await (await fetch('/api/threads')).json()).some(r=>r.id===id),deletedId),false);
+ checks.push('Confirmed thread deletion clears pending recovery; a delayed POST failure cannot recreate it or the deleted thread');
 
  await page.screenshot({path:path.join(out,'voice-ipad.png'),fullPage:true});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.ok((await page.locator('#voice-enable').boundingBox()).height>=44);await page.screenshot({path:path.join(out,'voice-phone.png'),fullPage:true});

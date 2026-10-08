@@ -104,7 +104,7 @@ async function deleteThread(row){
  voice?.cancel('Thread deletion cancelled voice.',true);deleting=true;navigating=true;++navigation;clearTimeout(draftTimer);controls();status('Deleting thread…');
  let removed=false;
  try{
-  await api('/api/delete-thread',{thread:row.id});removed=true;
+  await api('/api/delete-thread',{thread:row.id});removed=true;voice?.deleted(row.id);
   if(row.id===thread){thread='';pendingId='';activeRequest='';pendingText='';dirtyDraft=false;working=false;renderedSignature='';$('draft').value='';$('messages').replaceChildren();}
   const rows=await list();
   if(!thread){const next=rows[0]?.id||(await api('/api/new',{})).id;deleting=false;await openThread(next);await list();}

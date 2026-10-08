@@ -4,6 +4,7 @@ const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export function createVoice(chat){
  let enabled=false,available=false,generation=0,phase='off',stream=null,ctx=null,engine=null,proc=null,source=null,mute=null,pc=null,dc=null,wakeLock=null,turn=null,capture='',commitTimer=null,limitTimer=null,idleTimer=null,openingTimer=null,finalTimer=null,pending=null,autoRequest='',audioNode=null,speechOperation='',waitingGeneration=0,items=new Map();
+ const deletedThreads=new Set();
  const live=(g,t)=>enabled&&g===generation&&document.visibilityState==='visible'&&(!t||chat.context().thread===t)&&chat.context().authenticated;
  function status(value){$('voice-status').textContent=value;}
  function update(){
@@ -96,12 +97,14 @@ export function createVoice(chat){
   }
  }
  async function dispatch(record,g,fresh=false){
+  if(deletedThreads.has(record.payload.thread))return;
   persist({...record,phase:'dispatched'});
   try{
    await chat.api('/api/send',record.payload,10000);
    if(g!==generation)return;
    clearPending();phase='answer';autoRequest=fresh?record.payload.request:'';status('Request saved · waiting for Homebase');update();chat.refresh();
   }catch(e){
+   if(deletedThreads.has(record.payload.thread))return;
    persist({...record,phase:'uncertain'});phase='uncertain';status('Send outcome uncertain. Recover checks saved history before offering a retry.');update();
   }
  }
@@ -179,8 +182,8 @@ export function createVoice(chat){
   try{const saved=localStorage.getItem('homebase.voice.speak.v1');if(saved==='true'||saved==='false')$('voice-speak').checked=saved==='true';}catch{}
   try{const value=await chat.api('/api/voice/status');available=value.enabled===true;
    if(!available){status('Voice is not enabled on this release.');update();return;}
-   const raw=sessionStorage.getItem(RECOVERY_KEY);if(raw){pending=validatePending(JSON.parse(raw),chat.context().owner,location.origin);status('A final voice request needs recovery.');}
+   const raw=sessionStorage.getItem(RECOVERY_KEY);if(raw){try{pending=validatePending(JSON.parse(raw),chat.context().owner,location.origin);status('A final voice request needs recovery.');}catch{sessionStorage.removeItem(RECOVERY_KEY);status('Expired or changed-context voice recovery cleared. No request was sent.');}}
   }catch(e){status(e.message);}update();
  }
- return {ready,update,observe,cancel,signout(){cancel('Voice signed out.',true);clearPending();},read(request){if(!enabled){status('Enable voice first to allow playback.');return;}cancel('Preparing answer speech.');speak(request,chat.context().thread,generation);}};
+ return {ready,update,observe,cancel,deleted(id){deletedThreads.add(id);if(pending?.payload.thread===id)clearPending();},signout(){cancel('Voice signed out.',true);clearPending();},read(request){if(!enabled){status('Enable voice first to allow playback.');return;}cancel('Preparing answer speech.');speak(request,chat.context().thread,generation);}};
 }
