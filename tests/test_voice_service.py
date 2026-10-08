@@ -82,3 +82,11 @@ class VoiceTests(unittest.TestCase):
   self.assertEqual(reading_text('# Heading\n- **First** [link](https://example.org)\n```python\nx = 1\n```'),'Heading First link x = 1')
   text=('One sentence. '*100).strip();parts=chunks(text);self.assertEqual(' '.join(parts),text);self.assertTrue(all(len(x)<=400 for x in parts))
   with self.assertRaises(ProbeError):chunks('x'*401)
+
+class ReadingTests(unittest.TestCase):
+ def test_visible_commonmark_code_nested_links_and_alt_text(self):
+  self.assertEqual(reading_text('Read `**literal stars**` and [a link](https://example.org/(x)).'),'Read **literal stars** and a link.')
+  self.assertEqual(reading_text('![image text](https://example.org/a.png)'),'image text')
+  self.assertEqual(reading_text('| Item | State |\n| --- | --- |\n| Voice | Ready |'),'Item State Voice Ready')
+ def test_html_is_literal_and_inline_words_keep_adjacency(self):
+  self.assertEqual(reading_text('pre**bold**post <b>literal</b>'),'preboldpost <b>literal</b>')
