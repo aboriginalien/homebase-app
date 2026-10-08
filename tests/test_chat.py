@@ -185,4 +185,22 @@ class Routes(unittest.TestCase):
         self.assertEqual(status,202);time.sleep(.1)
         status,raw,_=self.request('/api/thread?id='+self.thread);self.assertEqual(json.loads(raw)['messages'][-1]['status'],'completed')
 
+    def test_voice_routes_require_owner_origin_csrf_and_keep_config_private(self):
+        from unittest.mock import Mock
+        voice=Mock();voice.status.return_value={'enabled':True};self.app.voice=voice
+        bodies={'/api/voice/start':{'thread':self.thread,'draft_revision':0,'capture':str(uuid.uuid4())},
+                '/api/voice/speech':{'thread':self.thread,'request':str(uuid.uuid4()),'index':0,'operation':str(uuid.uuid4())},
+                '/api/voice/close':{'capture':str(uuid.uuid4())}}
+        self.assertEqual(self.request('/api/voice/status')[0],401)
+        for path,body in bodies.items():self.assertEqual(self.request(path,body)[0],401)
+        self.pair()
+        for path,body in bodies.items():
+            self.assertEqual(self.request(path,body,csrf='wrong')[0],401)
+            self.assertEqual(self.request(path,body,origin='https://evil.invalid')[0],409)
+        voice.start.assert_not_called();voice.render.assert_not_called();voice.close.assert_not_called()
+        self.assertEqual(self.request('/api/voice/status')[0],200)
+        for path in ['/voice/config.json','/vendor/voxrt-0.1.1/../../voice/config.json','/static/vendor/VOXRT_MANIFEST.json']:
+            self.assertEqual(self.request(path)[0],404)
+
 if __name__=='__main__':unittest.main()
+

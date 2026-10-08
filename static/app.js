@@ -27,15 +27,15 @@ function messageTime(message){
  label.title=kind+' '+date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'long'});
  label.setAttribute('aria-label',speaker+' · '+label.title);return label;
 }
-let csrf='',thread='',working=false,sending=false,deleting=false,authenticated=false,poll=null,draftTimer=null,pendingId='',activeRequest='',dirtyDraft=false,draftVersion=0,pendingText='',renderedSignature='',navigation=0,navigating=false;
-async function api(path,body){
- const options={credentials:'same-origin',cache:'no-store'};
+let csrf='',thread='',working=false,sending=false,deleting=false,authenticated=false,poll=null,draftTimer=null,pendingId='',activeRequest='',dirtyDraft=false,draftVersion=0,pendingText='',renderedSignature='',navigation=0,navigating=false,voice=null,owner='';
+async function api(path,body,timeout=15000){
+ const options={credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(timeout)};
  if(body!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':csrf};options.body=JSON.stringify(body);}
  const r=await fetch(path,options);const value=await r.json();
  if(!r.ok){if(r.status===401){authenticated=false;clearPrivate();controls();}throw new Error(value.error||'Request failed; your draft is retained.');}return value;
 }
 function panel(name,visible){$(name+'-panel').hidden=!visible;$(name==='thread'?'threads':'memory').setAttribute('aria-expanded',String(visible));}
-function clearPrivate(){ $('messages').replaceChildren();$('records').replaceChildren();$('thread-panel').replaceChildren();panel('memory',false);panel('thread',false);$('draft').value='';$('connection').textContent='Disconnected';$('github-connection').textContent='';$('github-connection').hidden=true;renderedSignature=''; }
+function clearPrivate(){ voice?.signout(); $('messages').replaceChildren();$('records').replaceChildren();$('thread-panel').replaceChildren();panel('memory',false);panel('thread',false);$('draft').value='';$('connection').textContent='Disconnected';$('github-connection').textContent='';$('github-connection').hidden=true;renderedSignature=''; }
 function status(text){$('status').textContent=text;}
 async function githubStatus(){
  try{const value=await api('/api/github/status');if(!authenticated)return;const label=$('github-connection');
@@ -59,6 +59,7 @@ function activity(message,opened){
  }box.append(list);return box;
 }
 function controls(){
+ voice?.update();
  $('draft').disabled=!authenticated||!thread||navigating||deleting;$('send').disabled=!authenticated||!thread||navigating||deleting||working||sending||!$('draft').value.trim();
  $('stop').hidden=!working;$('new').disabled=!authenticated||sending||navigating||deleting;
  for(const id of ['threads','memory','signout'])$(id).disabled=!authenticated||navigating||deleting;
@@ -72,7 +73,7 @@ function render(data){
  for(const m of data.messages){const block=document.createElement('article');block.className='message '+(m.role==='user'?'user-message':'assistant-message');block.dataset.status=m.status;
  const who=messageTime(m);
  const body=document.createElement('div');body.className='body';messageBody(body,m);
- block.append(who,body);if(m.role==='assistant'&&m.status!=='completed'){const info=document.createElement('div');info.className='state';const phases={reading:'Reading GitHub…',writing:'Saving to GitHub…',verifying:'Checking GitHub result…',validating:'Checking request…'};info.textContent=m.status==='working'?(phases[m.phase]||'Working…'):m.error||m.status;block.append(info);}const actions=activity(m,opened);if(actions)block.append(actions);messages.append(block);}}
+ block.append(who,body);if(m.role==='assistant'&&m.status==='completed'){const read=document.createElement('button');read.type='button';read.className='read-aloud';read.textContent='Read aloud';read.onclick=()=>voice?.read(m.request);block.append(read);}if(m.role==='assistant'&&m.status!=='completed'){const info=document.createElement('div');info.className='state';const phases={reading:'Reading GitHub…',writing:'Saving to GitHub…',verifying:'Checking GitHub result…',validating:'Checking request…'};info.textContent=m.status==='working'?(phases[m.phase]||'Working…'):m.error||m.status;block.append(info);}const actions=activity(m,opened);if(actions)block.append(actions);messages.append(block);}}
  working=data.messages.some(m=>m.status==='working');
  const active=data.messages.find(m=>m.status==='working');activeRequest=active?active.request:'';
  if(!dirtyDraft&&!sending)$('draft').value=data.draft||'';
@@ -85,7 +86,7 @@ function render(data){
    else {status(last.error||'Reply is incomplete. Your draft is saved.');pendingId='';}
   }
  }
- if(working)status('Working… Reply text is being saved.');controls();
+ voice?.observe(data);if(working)status('Working… Reply text is being saved.');controls();
  if(nearBottom&&working)window.scrollTo({top:document.body.scrollHeight,behavior:'instant'});
 }
 async function refresh(){if(!authenticated||!thread||sending||deleting||navigating)return;const current=thread;
@@ -100,7 +101,7 @@ async function list(){const rows=await api('/api/threads');$('thread-panel').rep
 async function deleteThread(row){
  if(!authenticated||navigating||deleting||sending)return;
  if(!window.confirm('Delete “'+row.title+'”? This removes its conversation and thread notes. Shared memories stay. This cannot be undone.'))return;
- deleting=true;navigating=true;++navigation;clearTimeout(draftTimer);controls();status('Deleting thread…');
+ voice?.cancel('Thread deletion cancelled voice.',true);deleting=true;navigating=true;++navigation;clearTimeout(draftTimer);controls();status('Deleting thread…');
  let removed=false;
  try{
   await api('/api/delete-thread',{thread:row.id});removed=true;
@@ -113,15 +114,15 @@ async function deleteThread(row){
 }
 async function saveDraft(){if(!authenticated||!thread)return;await api('/api/draft',{thread,text:$('draft').value});}
 async function openThread(id){
- if(sending||deleting)return;const generation=++navigation;navigating=true;controls();status('Loading thread…');
+ if(sending||deleting)return;voice?.cancel('Thread navigation paused voice.',true);const generation=++navigation;navigating=true;controls();status('Loading thread…');
  try{if(thread&&dirtyDraft)await saveDraft();if(generation!==navigation)return;thread=id;pendingId='';dirtyDraft=false;
  const data=await api('/api/thread?id='+encodeURIComponent(id));if(generation!==navigation||thread!==id)return;$('draft').value=data.draft||'';render(data);
  panel('thread',false);status(working?'Working…':'');
  if(!$('memory-panel').hidden)await memory();}catch(e){status(e.message);}finally{if(generation===navigation){navigating=false;controls();}}
 }
-async function newThread(){if(navigating||sending||deleting)return;navigating=true;controls();status('Opening a new thread…');try{if(thread&&dirtyDraft)await saveDraft();const value=await api('/api/new',{});await openThread(value.id);await list();}catch(e){status(e.message);}finally{navigating=false;controls();}}
+async function newThread(){if(navigating||sending||deleting)return;voice?.cancel('New thread paused voice.',true);navigating=true;controls();status('Opening a new thread…');try{if(thread&&dirtyDraft)await saveDraft();const value=await api('/api/new',{});await openThread(value.id);await list();}catch(e){status(e.message);}finally{navigating=false;controls();}}
 async function send(event){event?.preventDefault();if(working||sending||navigating||deleting||!authenticated||!$('draft').value.trim())return;
- const text=$('draft').value;const current=thread;const version=draftVersion;
+ voice?.cancel('Typed send paused voice.',true);const text=$('draft').value;const current=thread;const version=draftVersion;
  sending=true;controls();status('Sending…');pendingId=pendingId||crypto.randomUUID();pendingText=text;
  try{await api('/api/send',{thread:current,request:pendingId,text});if(draftVersion===version)dirtyDraft=false;else await api('/api/draft',{thread:current,text:$('draft').value});}
  catch(e){status(e.message+' Your draft is retained.');}
@@ -129,10 +130,10 @@ async function send(event){event?.preventDefault();if(working||sending||navigati
 }
 $('composer').addEventListener('submit',send);
 $('draft').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}});
-$('draft').addEventListener('input',()=>{dirtyDraft=true;draftVersion++;if(!working&&!sending)pendingId='';controls();clearTimeout(draftTimer);draftTimer=setTimeout(()=>saveDraft().catch(e=>status(e.message+' Draft remains in this browser.')),350);});
+$('draft').addEventListener('input',()=>{voice?.cancel('Typed draft preserved; voice paused.',true);dirtyDraft=true;draftVersion++;if(!working&&!sending)pendingId='';controls();clearTimeout(draftTimer);draftTimer=setTimeout(()=>saveDraft().catch(e=>status(e.message+' Draft remains in this browser.')),350);});
 $('new').onclick=newThread;
 $('threads').onclick=async()=>{try{await list();panel('thread',$('thread-panel').hidden);}catch(e){status(e.message);}};
-$('stop').onclick=async()=>{try{await api('/api/stop',{thread});await refresh();}catch(e){status(e.message);}};
+$('stop').onclick=async()=>{voice?.cancel('Reply stopped; speech skipped.',true);try{await api('/api/stop',{thread});await refresh();}catch(e){status(e.message);}};
 async function memory(){const rows=await api('/api/memory?id='+encodeURIComponent(thread));$('records').replaceChildren();for(const row of rows){
  const block=document.createElement('div');block.className='record';const title=document.createElement('div');title.textContent=row.title+' · '+row.scope+' · revision '+row.revision;
  const metadata=document.createElement('p');metadata.className='quiet';metadata.textContent=row.id+' · '+row.source;
@@ -142,13 +143,13 @@ async function memory(){const rows=await api('/api/memory?id='+encodeURIComponen
 async function changeMemory(value){try{const r=await api('/api/memory',{...value,thread});status('Memory updated · revision '+r.revision);await memory();}catch(e){status(e.message);}}
 $('memory').onclick=async()=>{try{await memory();panel('memory',$('memory-panel').hidden);}catch(e){status(e.message);}};
 $('memory-form').onsubmit=async e=>{e.preventDefault();await changeMemory({action:'remember',scope:$('memory-scope').value,title:$('memory-title').value,text:$('memory-text').value});};
-$('signout').onclick=async()=>{try{const result=await api('/api/signout',{});authenticated=false;clearInterval(poll);clearPrivate();status(result.message);controls();}catch(e){status(e.message);}};
+$('signout').onclick=async()=>{voice?.signout();try{const result=await api('/api/signout',{});authenticated=false;clearInterval(poll);clearPrivate();status(result.message);controls();}catch(e){status(e.message);}};
 async function boot(){
  controls();try{
   if(location.hash.startsWith('#pair=')){const capability=location.hash.slice(6);history.replaceState(null,'',location.pathname);await api('/api/pair',{capability});}
-  const s=await api('/api/status');csrf=s.csrf;authenticated=true;$('connection').textContent='Connected · '+s.account+' · using your ChatGPT plan';
+  const s=await api('/api/status');csrf=s.csrf;owner=s.account;authenticated=true;$('connection').textContent='Connected · '+s.account+' · using your ChatGPT plan';
   const rows=await api('/api/threads');if(rows.length)await openThread(rows[0].id);else await newThread();
-  controls();poll=setInterval(refresh,700);await list();await githubStatus();
+  voice=(await import('/voice-ui.mjs')).createVoice({api,refresh,context:()=>({authenticated,thread,working,draft:$('draft').value,owner}),flushDraft:async()=>{clearTimeout(draftTimer);await saveDraft();}});await voice.ready();controls();poll=setInterval(refresh,700);await list();await githubStatus();
   setInterval(()=>{if(authenticated)githubStatus();},15000);
  }catch(e){status(e.message);controls();}
 }

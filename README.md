@@ -375,3 +375,42 @@ inventory, but GitHub indexing/permissions may limit code search.
 fresh task branch and pre/post checks mitigate races; they do not provide the
 Work connector's atomic guarded-ref publication guarantee. The existing
 protected deployment lane remains separate from tools exposed to the agent.
+
+
+## Optional Homebase Voice V1
+
+Audio uses a separately billed, protected OpenAI voice project. It never replaces
+the subscription-backed GPT-5.6 Sol/high/default answer path. Runtime voice stays
+disabled unless the protected installer enables `state/voice/config.json` (0600,
+parent 0700). No credential belongs in this public repository or a browser bundle.
+
+Pinned local VoxRT 0.1.1 assets are distributed unmodified with both original
+licenses and `static/vendor/VOXRT_MANIFEST.json`. Hey Assistant threshold is 0.9
+with cooldownFrames 100. Capture uses gpt-live-transcribe, manual Roger out
+finalization and an exact original-thread/draft-revision/request-UUID payload.
+A lost send acknowledgment requires read-only recovery and an explicit retry of
+the same absent request. Typed drafts and accepted incomplete/stopped turns are
+preserved. Session storage contains only a final request, expires after 24 hours,
+and is cleared on acceptance, discard or signout; no audio or credentials persist.
+
+Output uses gpt-realtime-2.1-mini to read only a server-resolved completed answer.
+Audio remains buffered until returned transcript words match the intended segment.
+Mismatch fails closed without another model, native speech or an automatic retry.
+The microphone is released during output; Stop Speaking keeps the saved answer.
+Enable voice unlocks foreground playback; background/locked-screen operation is
+not promised. Physical Safari/iPad/iPhone/OpenComm2 acceptance is a separate gate.
+
+Private usage reservations commit before requests, count uncertain attempts,
+serialize audio operations and stop at the approved $20 monthly working boundary.
+They are conservative accounting, not a claim of provider hard-cap enforcement.
+The provider client secret can authorize multiple sessions during its short
+creation window; its expiry does not itself terminate an existing session.
+Paid synthetic acceptance uses the separate cumulative $5 protected test ledger.
+
+Verification: Python unittest suite; Node voice_core/voice_recovery tests; actual
+Chromium presentation/thread-controls/voice browser suites with synthetic provider
+and RTC. The voice suite separately loads the real pinned WASM/model under CSP.
+Protected rollout requires pinned source, code/private SQLite backups, live-job
+and lease checks, regression and funding/audio proofs. Rollback restores prior
+code/assets/CSP while preserving newer chat data; never overwrite live SQLite
+with an old snapshot.

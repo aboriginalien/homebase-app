@@ -1,0 +1,18 @@
+{
+  "package": "@voxrt/wake-word-browser",
+  "version": "0.1.1",
+  "archive_sha512": "59wjY6XzcOCeW28olVFxvEgwmM2A0u1rJxIdewGyR0/CW3eUnfpTAr2rMMYo039WV3Wy4oV5KT+Hz+aiigtTZQ==",
+  "wrapper_license": "Apache-2.0",
+  "binary_license": "LICENSE-BINARY; unmodified official SDK redistribution; includes on-device Hey Assistant without fees or registration",
+  "files_sha256": {
+    "LICENSE": "799ae84fdae387da0a6037c8c540087eee94fb036a6132febdf761dbb28d243a",
+    "LICENSE-BINARY": "b99cd9127778fc42da1199485206475250d22478b233e01376193088a01e3772",
+    "README.md": "94c6eb6b299371be43611040ab35e404c0e9bbd0da5ce15c99caadfb187da002",
+    "voxrt-wake-word-browser.d.ts": "03ebd918b3c1e0865ad646e2ff52da2cea1b656bd8f61eb2c375313e7e16a763",
+    "voxrt-wake-word-browser.js": "2af22d7f36bad5a7757c871a8ff7da6fc1ef42de2fcb13e59e01f64ede2793c7",
+    "voxrt-wake-word-browser_bg.wasm": "bb6da9259a26b95f2a82f6382748919d7cd9835ab0d9e015f6b09f3c80e29f2d",
+    "voxrt-wake-word-browser_bg.wasm.d.ts": "a96356975073bc31b6431f345e8e7c7f9a000543def6907140fb7176e1cf0a6f",
+    "package.json": "dffb9585a97ef2fc4134a00d19e8f57e8fcd7cbbd99acdca5f2bd9ef77332110",
+    "voxrt_wake_word.vxrt": "04208e1e46153ab9b7986d1afdadb548513187e8446c3c2495d4c93a10059992"
+  }
+}

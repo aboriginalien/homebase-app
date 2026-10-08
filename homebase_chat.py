@@ -22,6 +22,7 @@ import homebase_probe as provider
 from memory_store import State
 from github_bridge import Bridge
 import agent_turn
+from voice_service import Voice
 
 MODEL='gpt-5.6-sol'
 STATIC=Path(__file__).resolve().parent / 'static'
@@ -49,6 +50,7 @@ class App:
         self.state=state if state is not None else State(store.directory,account,recover=recover)
         self.bridge=bridge if bridge is not None else Bridge(store.directory/'github/config.json')
         self.jobs={};self.guard=threading.Lock()
+        self.voice=Voice(store.directory,self.state)
         if bridge is None and self.bridge.path.exists():
             threading.Thread(target=self.bridge.definitions,daemon=True).start()
 
@@ -135,6 +137,7 @@ class App:
             with self.guard:self.jobs.pop(identity,None)
 
     def signout(self):
+        self.voice.close()
         # Block every browser immediately, then stop active inference. Never grant via anonymous routes.
         self.state.revoke_sessions()
         with self.guard:
@@ -166,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control','no-store')
         self.send_header('Referrer-Policy','no-referrer')
         self.send_header('X-Content-Type-Options','nosniff')
-        self.send_header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header('Content-Security-Policy',"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://api.openai.com; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         if cookie:self.send_header('Set-Cookie',cookie)
         self.end_headers()
         try:self.wfile.write(raw)
@@ -192,7 +195,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.allowed();u=urlsplit(self.path)
             public={'/':('index.html','text/html'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css'),
-                    '/markdown-it.min.js':('markdown-it.min.js','text/javascript')}
+                    '/markdown-it.min.js':('markdown-it.min.js','text/javascript'),
+                    '/voice-ui.mjs':('voice-ui.mjs','text/javascript'),'/voice-core.mjs':('voice-core.mjs','text/javascript'),
+                    '/voice-recovery.mjs':('voice-recovery.mjs','text/javascript'),
+                    '/vendor/voxrt-0.1.1/voxrt-wake-word-browser.js':('vendor/voxrt-0.1.1/voxrt-wake-word-browser.js','text/javascript'),
+                    '/vendor/voxrt-0.1.1/voxrt-wake-word-browser_bg.wasm':('vendor/voxrt-0.1.1/voxrt-wake-word-browser_bg.wasm','application/wasm'),
+                    '/vendor/voxrt-0.1.1/voxrt_wake_word.vxrt':('vendor/voxrt-0.1.1/voxrt_wake_word.vxrt','application/octet-stream')}
             if u.path in public:
                 name,kind=public[u.path];return self.reply(200,(STATIC/name).read_bytes(),kind)
             if u.path=='/health':return self.reply(200,{'status':'ok','inference':'not tested by health'})
@@ -203,6 +211,7 @@ class Handler(BaseHTTPRequestHandler):
                     'speed':'standard','usage_url':provider.USAGE_URL,'csrf':csrf})
             if u.path=='/api/threads':return self.reply(200,self.app.state.threads())
             if u.path=='/api/github/status':return self.reply(200,self.app.bridge.status())
+            if u.path=='/api/voice/status':return self.reply(200,self.app.voice.status())
             args=parse_qs(u.query)
             thread=args.get('id',[''])[0]
             if u.path=='/api/thread':return self.reply(200,self.app.state.thread(thread))
@@ -233,6 +242,9 @@ class Handler(BaseHTTPRequestHandler):
                 if self.app.secure:cookie+='; Secure'
                 return self.reply(200,{'csrf':csrf},cookie=cookie)
             self.auth(write=True)
+            if path=='/api/voice/start':return self.reply(200,self.app.voice.start(data.get('thread'),data.get('draft_revision'),data.get('capture')))
+            if path=='/api/voice/close':return self.reply(200,self.app.voice.close(data.get('capture')))
+            if path=='/api/voice/speech':return self.reply(200,self.app.voice.render(data.get('thread'),data.get('request'),data.get('index'),data.get('operation')))
             if path=='/api/new':return self.reply(200,{'id':self.app.state.new_thread()})
             if path=='/api/delete-thread':return self.reply(200,self.app.delete_thread(data.get('thread')))
             if path=='/api/send':return self.reply(202,self.app.send(data.get('thread'),data.get('request'),data.get('text'),source=data.get('source','typed'),draft_revision=data.get('draft_revision')))
