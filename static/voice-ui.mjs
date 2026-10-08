@@ -64,6 +64,7 @@ export function createVoice(chat){
   pc=new RTCPeerConnection();for(const track of stream.getTracks())pc.addTrack(track,stream);
   dc=pc.createDataChannel('oai-events');dc.onmessage=e=>{if(live(g,frozen))receive(e,g,frozen);};
   dc.onopen=()=>{if(!live(g,frozen))return;clearTimeout(openingTimer);phase='capturing';status('Listening · finish with Roger out');update();
+   const tone=ctx.createOscillator(),gain=ctx.createGain();tone.frequency.value=900;gain.gain.value=.09;tone.connect(gain);gain.connect(ctx.destination);tone.start();tone.stop(ctx.currentTime+.09);tone.onended=()=>{tone.disconnect();gain.disconnect();};
    limitTimer=setTimeout(()=>fail(new Error('Five-minute capture limit reached. No request was sent.'),g),300000);resetIdle(g);};
   dc.onclose=()=>{if(live(g,frozen)&&['opening','capturing','finalizing'].includes(phase))fail(new Error('Transcription disconnected. No automatic resend was made.'),g);};
   const offer=await pc.createOffer();await pc.setLocalDescription(offer);if(!live(g,frozen))return;
@@ -111,19 +112,21 @@ export function createVoice(chat){
    const state=reconcilePending(record,data);
    if(state!=='absent'){clearPending();status('Request already saved · '+state+'. It will not be sent again.');chat.refresh();return;}
    status('No saved request found. Retry sends this same final request once.');$('voice-recover').textContent='Retry saved request';
-   $('voice-recover').onclick=async()=>{
-    if(pending!==record)return;
+   $('voice-recover').onclick=async()=>{try{
+    if(pending!==record)return;const retryGeneration=generation;
     // Reconcile again immediately before any explicit retry.
     const current=await chat.api('/api/thread?id='+encodeURIComponent(record.payload.thread));
+    if(retryGeneration!==generation||pending!==record||document.visibilityState!=='visible')return;
     if(reconcilePending(record,current)!=='absent'){await recover();return;}
     if(chat.context().thread!==record.payload.thread)throw new Error('Open the original thread before retrying.');
     await dispatch(record,generation,false);$('voice-recover').textContent='Recover request';$('voice-recover').onclick=()=>recover().catch(e=>status(e.message));
-   };
+   }catch(e){status(e.message+' Saved recovery is retained.');}};
   }catch(e){status(e.message+' Saved recovery is retained.');}
  }
  async function speak(request,frozen,g){
-  if(!live(g,frozen))return;const priorCapture=capture;closeInput();if(priorCapture)await chat.api('/api/voice/close',{capture:priorCapture});if(!live(g,frozen))return;phase='speaking';status('Preparing verified speech…');update();
+  if(!live(g,frozen))return;const priorCapture=capture;closeInput();phase='speaking';status('Preparing verified speech…');update();
   try{
+   if(priorCapture)await chat.api('/api/voice/close',{capture:priorCapture});if(!live(g,frozen))return;
    for(let index=0;;index++){
     if(!live(g,frozen)||phase!=='speaking')return;
     speechOperation=crypto.randomUUID();const audio=await chat.api('/api/voice/speech',{thread:frozen,request,index,operation:speechOperation},55000);
@@ -132,7 +135,7 @@ export function createVoice(chat){
     const raw=Uint8Array.from(atob(audio.pcm),c=>c.charCodeAt(0));if(raw.length%2)throw new Error('Invalid audio segment.');
     const view=new DataView(raw.buffer),buffer=ctx.createBuffer(1,raw.length/2,24000),samples=buffer.getChannelData(0);
     for(let i=0;i<samples.length;i++)samples[i]=view.getInt16(i*2,true)/32768;
-    await ctx.resume();if(ctx.state!=='running')throw new Error('Tap Enable voice again to resume playback.');
+    await ctx.resume();if(!live(g,frozen)||phase!=='speaking')return;if(ctx.state!=='running')throw new Error('Tap Enable voice again to resume playback.');
     const node=ctx.createBufferSource();node.buffer=buffer;node.connect(ctx.destination);audioNode=node;
     status('Speaking answer · '+(index+1)+' of '+audio.count);
     await new Promise(resolve=>{node.onended=resolve;node.start();});audioNode=null;speechOperation='';
@@ -154,16 +157,18 @@ export function createVoice(chat){
  }
  $('voice-enable').onclick=async()=>{
   if(enabled&&phase!=='paused'){cancel('Voice paused.',true);return;}
-  if(enabled&&phase==='paused'){generation++;waitingGeneration=-1;await ctx.resume();await waiting(generation);return;}
+  if(enabled&&phase==='paused'){const g=++generation;waitingGeneration=-1;try{await ctx.resume();if(live(g))await waiting(g);}catch(e){cancel(e.message,true);}return;}
   try{
    if(document.visibilityState!=='visible')throw new Error('Keep Homebase in the foreground.');
-   ctx=ctx||new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});await ctx.resume();
+   const enableGeneration=++generation,enableThread=chat.context().thread;
+   ctx=ctx||new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});await ctx.resume();if(enableGeneration!==generation||document.visibilityState!=='visible'||chat.context().thread!==enableThread)return;
    const unlock=ctx.createBufferSource();unlock.buffer=ctx.createBuffer(1,1,ctx.sampleRate);unlock.connect(ctx.destination);unlock.start();
-   enabled=true;generation++;waitingGeneration=-1;
-   try{wakeLock=await navigator.wakeLock?.request('screen');}catch{}
-   await waiting(generation);
+   enabled=true;waitingGeneration=-1;
+   try{const lock=await navigator.wakeLock?.request('screen');if(!live(enableGeneration,enableThread)){await lock?.release();return;}wakeLock=lock;}catch{}
+   if(live(enableGeneration,enableThread))await waiting(enableGeneration);
   }catch(e){cancel(e.message,true);}
  };
+ $('voice-speak').onchange=()=>{try{localStorage.setItem('homebase.voice.speak.v1',String($('voice-speak').checked));}catch{}};
  $('voice-cancel').onclick=()=>cancel('Unsent capture cancelled.');
  $('voice-stop').onclick=async()=>{cancel('Speaking stopped. The answer remains saved.');const g=generation;phase='cooldown';update();await delay(700);if(live(g))await waiting(g);};
  $('voice-recover').onclick=()=>recover().catch(e=>status(e.message));
@@ -171,6 +176,7 @@ export function createVoice(chat){
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')cancel('Voice paused when Homebase left the foreground.',true);});
  window.addEventListener('pagehide',()=>cancel('Voice paused.',true));
  async function ready(){
+  try{const saved=localStorage.getItem('homebase.voice.speak.v1');if(saved==='true'||saved==='false')$('voice-speak').checked=saved==='true';}catch{}
   try{const value=await chat.api('/api/voice/status');available=value.enabled===true;
    if(!available){status('Voice is not enabled on this release.');update();return;}
    const raw=sessionStorage.getItem(RECOVERY_KEY);if(raw){pending=validatePending(JSON.parse(raw),chat.context().owner,location.origin);status('A final voice request needs recovery.');}

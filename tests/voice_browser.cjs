@@ -18,11 +18,12 @@ let browser;const checks=[],errors=[];
  await context.addInitScript(()=>{
   window.voiceEvents=[];window.voiceStreams=[];
   const original=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-  navigator.mediaDevices.getUserMedia=async x=>{const s=await original(x);window.voiceStreams.push(s);return s;};
+  navigator.mediaDevices.getUserMedia=async x=>{const s=await original(x);window.voiceStreams.push(s);if(window.deferMic)await new Promise(resolve=>window.releaseMic=resolve);return s;};
   class Channel{constructor(){window.testDC=this;this.readyState='open';}send(raw){const e=JSON.parse(raw);window.voiceEvents.push(e);if(e.type==='input_audio_buffer.commit')setTimeout(()=>this.onmessage?.({data:JSON.stringify({type:'conversation.item.input_audio_transcription.completed',item_id:'item_1',content_index:0,transcript:window.finalText})}),20);}close(){this.readyState='closed';}}
   window.RTCPeerConnection=class{createDataChannel(){this.channel=new Channel();return this.channel;}addTrack(){}async createOffer(){return {type:'offer',sdp:'synthetic-sdp'}}async setLocalDescription(){}async setRemoteDescription(){setTimeout(()=>this.channel.onopen?.(),1)}close(){}};
  });
  await page.reload();await page.locator('#voice-enable:not([disabled])').waitFor();
+ await page.locator('#voice-speak').uncheck();await page.reload();await page.locator('#voice-enable:not([disabled])').waitFor();assert.equal(await page.locator('#voice-speak').isChecked(),false);assert.equal(await page.locator('#voice-enable').innerText(),'Enable voice');await page.locator('#voice-speak').check();checks.push('Only speech preference persists; reload never automatically arms microphone');
  const sends=[];page.on('request',r=>{if(r.url().endsWith('/api/send')&&r.method()==='POST')sends.push(JSON.parse(r.postData()));});
  async function capture(text){await page.locator('#voice-enable').click();await page.getByText('Local listening · say Hey Assistant',{exact:true}).waitFor();await page.evaluate(()=>window.wakeRequested=true);await page.getByText('Listening · finish with Roger out',{exact:true}).waitFor();await page.evaluate(t=>{window.finalText=t;window.testDC.onmessage({data:JSON.stringify({type:'conversation.item.input_audio_transcription.delta',item_id:'item_1',content_index:0,delta:t})});},text);}
  await capture('Say Hey Assistant and Roger out in the reply. Roger out');
@@ -43,6 +44,23 @@ let browser;const checks=[],errors=[];
  assert.equal(sends.length,2);await page.locator('#voice-recover').click();await page.getByText(/Request already saved/).waitFor();assert.equal(sends.length,2);
  assert.equal(await page.evaluate(()=>sessionStorage.getItem('homebase.voice.pending.v1')),null);
  checks.push('Lost acknowledgment reconciles original durable UUID and never automatically replays an accepted send');
+ // Cancel a microphone permission continuation by navigating while it awaits.
+ await page.locator('.assistant-message[data-status="completed"]').nth(1).waitFor();await page.locator('#voice-enable').click();await page.evaluate(()=>window.deferMic=true);await page.locator('#voice-enable').click();
+ await page.waitForFunction(()=>typeof window.releaseMic==='function');await page.locator('#new').click();await page.evaluate(()=>{window.deferMic=false;window.releaseMic();});await page.waitForTimeout(150);
+ assert.equal(await page.locator('#voice-enable').innerText(),'Enable voice');assert.equal(await page.evaluate(()=>window.voiceStreams.flatMap(s=>s.getTracks()).filter(t=>t.readyState==='live').length),0);assert.equal(sends.length,2);
+ checks.push('Navigation invalidates a delayed microphone continuation; late tracks close without arming or sending');
+ // A definitely absent request may be retried only explicitly. Navigation
+ // while the final read-only retry check awaits cancels that future POST.
+ await context.unroute('**/api/send');await context.route('**/api/send',r=>r.abort('failed'));
+ await capture('Keep an absent request exact. Roger out');await page.getByText('Send outcome uncertain. Recover checks saved history before offering a retry.',{exact:true}).waitFor();assert.equal(sends.length,3);
+ await page.locator('#voice-recover').click();await page.getByRole('button',{name:'Retry saved request',exact:true}).waitFor();
+ const originalId=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('homebase.voice.pending.v1')).payload.thread);let held;
+ await context.route('**/api/thread?id='+originalId,r=>{if(!held){held=r;}else r.continue();});
+ await page.locator('#voice-recover').click();for(let i=0;!held&&i<100;i++)await page.waitForTimeout(10);assert.ok(held);
+ await page.locator('#new').click();await held.continue();await page.waitForTimeout(200);assert.equal(sends.length,3);assert.ok(await page.evaluate(()=>sessionStorage.getItem('homebase.voice.pending.v1')));
+ await context.unroute('**/api/thread?id='+originalId);await page.locator('#voice-discard').click();
+ checks.push('Explicit retry rechecks durable absence and lifecycle; navigation during read-only recovery prevents the POST');
+
  await page.screenshot({path:path.join(out,'voice-ipad.png'),fullPage:true});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.ok((await page.locator('#voice-enable').boundingBox()).height>=44);await page.screenshot({path:path.join(out,'voice-phone.png'),fullPage:true});
  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({environment:'Actual Chromium, real CSP/audio graph; synthetic detections, RTC, provider; not physical Safari or paid audio',checks,errors},null,2)+'\n');console.log(JSON.stringify({checks,errors}));
